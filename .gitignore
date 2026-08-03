@@ -1,0 +1,8 @@
+/picshare
+/config.json
+/photos/
+/thumbs/
+*.test
+*.out
+coverage.out
+.DS_Store

@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title data-i18n="site_title">Product Gallery</title>
+<link rel="stylesheet" href="/css/public.css">
+<link rel="stylesheet" href="/vendor/photoswipe/photoswipe.css">
+</head>
+<body>
+<header class="top">
+  <h1><a href="/" style="color:inherit" data-i18n="site_title">Product Gallery</a></h1>
+  <div class="actions">
+    <div id="lang-switch"></div>
+    <a class="admin-link" href="/admin/" data-i18n="admin">Admin</a>
+  </div>
+</header>
+
+<main>
+  <div id="breadcrumb" class="breadcrumb"></div>
+  <h2 id="album-title" data-i18n="albums">Albums</h2>
+  <p id="album-desc" class="desc"></p>
+  <div id="album-list" class="album-grid"></div>
+  <div id="photo-grid" class="photo-grid"></div>
+</main>
+
+<div class="pswp" tabindex="-1" role="dialog" aria-hidden="true">
+  <div class="pswp__bg"></div>
+  <div class="pswp__scroll-wrap">
+    <div class="pswp__container">
+      <div class="pswp__item"></div>
+      <div class="pswp__item"></div>
+      <div class="pswp__item"></div>
+    </div>
+    <div class="pswp__ui pswp__ui--hidden">
+      <div class="pswp__top-bar">
+        <div class="pswp__name"></div>
+        <div class="pswp__counter"></div>
+        <button class="pswp__button pswp__button--close" title="Close (Esc)"></button>
+        <button class="pswp__button pswp__button--share" title="Share"></button>
+        <button class="pswp__button pswp__button--fs" title="Toggle fullscreen"></button>
+        <button class="pswp__button pswp__button--zoom" title="Zoom in/out"></button>
+        <div class="pswp__preloader">
+          <div class="pswp__preloader__icn">
+            <div class="pswp__preloader__cut">
+              <div class="pswp__preloader__donut"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="pswp__share-modal pswp__share-modal--hidden pswp__single-tap">
+        <div class="pswp__share-tooltip"></div>
+      </div>
+      <button class="pswp__button pswp__button--arrow--left" title="Previous (arrow left)"></button>
+      <button class="pswp__button pswp__button--arrow--right" title="Next (arrow right)"></button>
+      <div class="pswp__caption">
+        <div class="pswp__caption__center"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="/js/i18n.js"></script>
+<script src="/js/public.js"></script>
+<script src="/vendor/photoswipe/photoswipe.umd.min.js"></script>
+<script src="/vendor/photoswipe/photoswipe-lightbox.umd.min.js"></script>
+</body>
+</html>

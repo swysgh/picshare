@@ -1,0 +1,41 @@
+# picshare nginx site — drop into /etc/nginx/sites-available/picshare.conf
+#
+# Architecture: Nginx 直出原图，Go 仅处理 API + 缩略图 + 后台。
+# - GET /photos/*  → 直接读原始图片，绕过 Go，零开销
+# - 所有其他请求 → 反代到 Go :8080
+
+server {
+    listen 80;
+    server_name gallery.example.com;
+    client_max_body_size 0;          # 关闭上传大小限制，由 Go 按需处理
+    proxy_request_buffering off;     # 流式转发，不落 Nginx 盘
+    proxy_http_version 1.1;
+
+    # 静态文件直出（关键优化：原图 0 拷贝发送）
+    location /photos/ {
+        alias /var/lib/picshare/photos/;
+        expires 7d;
+        add_header Cache-Control "public, max-age=604800, immutable";
+        access_log off;
+        try_files $uri =404;
+    }
+
+    # 缩略图缓存（可选：也可直接走 Go）
+    location /thumbs/ {
+        alias /var/lib/picshare/thumbs/;
+        expires 30d;
+        add_header Cache-Control "public, max-age=2592000, immutable";
+        access_log off;
+        try_files $uri =404;
+    }
+
+    # API + 后台 + 缩略图生成 + 前端 HTML
+    location / {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 300s;
+    }
+}

@@ -1,0 +1,93 @@
+package api
+
+import (
+	"encoding/json"
+	"net/http"
+	"path"
+	"path/filepath"
+	"strings"
+
+	"github.com/swys/picshare/internal/gallery"
+)
+
+type PublicHandlers struct {
+	PhotosDir string
+	ThumbsDir string
+	WebPrefix string
+}
+
+func (h *PublicHandlers) ListAlbums(w http.ResponseWriter, r *http.Request) {
+	albums, err := gallery.Scan(h.PhotosDir, h.WebPrefix)
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	if albums == nil {
+		albums = []gallery.Album{}
+	}
+	writeJSON(w, albums)
+}
+
+func (h *PublicHandlers) GetAlbum(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if !validAlbumName(name) {
+		http.Error(w, "bad album name", 400)
+		return
+	}
+	albums, err := gallery.Scan(h.PhotosDir, h.WebPrefix)
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	for _, a := range albums {
+		if a.Name == name {
+			full, err := gallery.ScanAlbum(h.PhotosDir, name, h.WebPrefix)
+			if err != nil {
+				http.Error(w, err.Error(), 500)
+				return
+			}
+			writeJSON(w, full)
+			return
+		}
+	}
+	http.Error(w, "album not found", 404)
+}
+
+func (h *PublicHandlers) ServeImage(w http.ResponseWriter, r *http.Request) {
+	p := r.PathValue("path")
+	clean := filepath.Clean("/" + p)
+	abs := filepath.Join(h.PhotosDir, clean)
+	rel, err := filepath.Rel(h.PhotosDir, abs)
+	if err != nil || strings.HasPrefix(rel, "..") || strings.HasPrefix(rel, string(filepath.Separator)+"..") {
+		http.Error(w, "forbidden", 403)
+		return
+	}
+	if !strings.HasPrefix(abs, h.PhotosDir) {
+		http.Error(w, "forbidden", 403)
+		return
+	}
+	if !gallery.IsImage(path.Base(abs)) {
+		http.Error(w, "forbidden", 403)
+		return
+	}
+	w.Header().Set("Cache-Control", "public, max-age=604800")
+	http.ServeFile(w, r, abs)
+}
+
+func writeJSON(w http.ResponseWriter, v any) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	enc := json.NewEncoder(w)
+	enc.SetEscapeHTML(false)
+	_ = enc.Encode(v)
+}
+
+func validAlbumName(name string) bool {
+	if name == "" || name == "." || name == ".." {
+		return false
+	}
+	if strings.Contains(name, "/") || strings.Contains(name, "\x00") {
+		return false
+	}
+	return true
+}

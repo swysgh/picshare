@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>管理后台 - picshare</title>
+<link rel="stylesheet" href="/css/admin.css">
+</head>
+<body>
+<div class="progress" id="progress"></div>
+
+<header class="top">
+  <h1>
+    <a href="/admin/" style="color:inherit">picshare 管理</a>
+    <span id="album-title" style="font-weight:400;color:#888;margin-left:8px"></span>
+  </h1>
+  <div class="actions">
+    <button id="view-public" class="primary">前台预览</button>
+  </div>
+</header>
+
+<div id="breadcrumb" class="breadcrumb"></div>
+
+<main>
+  <div class="toolbar">
+    <button id="new-album-btn" class="primary">+ 新建相册</button>
+    <button id="upload-btn" style="display:none">⬆ 上传图片</button>
+    <div class="spacer"></div>
+  </div>
+
+  <div id="drop-zone" class="drop-zone" style="display:none">
+    <p>点击或拖拽图片到此处上传</p>
+    <input type="file" id="file-input" multiple accept="image/*" style="display:none">
+  </div>
+
+  <p id="album-desc" style="color:#888;margin-top:0"></p>
+
+  <div id="grid" class="album-grid"></div>
+</main>
+
+<div class="selection-bar" id="selection-bar">
+  <span class="count">已选 0 项</span>
+  <button id="clear-selection">取消</button>
+  <button id="delete-selected" class="danger">删除</button>
+</div>
+
+<div class="modal-backdrop" id="modal-backdrop"></div>
+<div class="toast" id="toast"></div>
+
+<script src="/js/admin.js"></script>
+</body>
+</html>

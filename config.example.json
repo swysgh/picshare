@@ -1,0 +1,13 @@
+{
+  "listen": "127.0.0.1:8080",
+  "photos_dir": "./photos",
+  "thumbs_dir": "./thumbs",
+  "admin_user": "admin",
+  "admin_pass": "change-me",
+  "site_title": "Product Gallery",
+  "default_lang": "zh",
+  "grid_thumb_size": 480,
+  "lightbox_size": 1600,
+  "enable_exif_rotation": true,
+  "web_path_prefix": "/photos"
+}

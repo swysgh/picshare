@@ -1,0 +1,25 @@
+[Unit]
+Description=picshare - lightweight product image gallery
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/picshare --config /etc/picshare.json
+Restart=on-failure
+RestartSec=5
+User=picshare
+Group=picshare
+WorkingDirectory=/var/lib/picshare
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/picshare/photos /var/lib/picshare/thumbs
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=picshare
+
+[Install]
+WantedBy=multi-user.target
