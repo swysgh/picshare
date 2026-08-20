@@ -7,15 +7,13 @@ Type=simple
 ExecStart=/usr/bin/picshare --config /etc/picshare.json
 Restart=on-failure
 RestartSec=5
-User=picshare
-Group=picshare
-WorkingDirectory=/var/lib/picshare
+WorkingDirectory=/hhdisk/rich37/picshare
 
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/var/lib/picshare/photos /var/lib/picshare/thumbs
+ReadWritePaths=/hhdisk/rich37/picshare/photos /hhdisk/rich37/picshare/thumbs
 
 StandardOutput=journal
 StandardError=journal
