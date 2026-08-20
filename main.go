@@ -108,7 +108,7 @@ func main() {
 	mux.Handle("POST /api/admin/delete", adminGuard(adm.Delete))
 	mux.Handle("POST /api/admin/setcover", adminGuard(adm.SetCover))
 
-	webHandler := webui.NewHandler()
+	webHandler := webui.NewHandler(cfg.DefaultLang)
 	mux.Handle("/", spaHandler(webHandler))
 
 	srv := &http.Server{

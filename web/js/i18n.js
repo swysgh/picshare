@@ -161,10 +161,50 @@
   };
 
   const STORAGE_KEY = 'picshare.lang';
+  const COOKIE_KEY = 'picshare.lang';
+  let memLang = null;
+
+  function readCookieLang() {
+    try {
+      const m = document.cookie.match(new RegExp('(?:^|;\\s*)' + COOKIE_KEY + '=([^;]*)'));
+      return m ? decodeURIComponent(m[1]) : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function writeCookieLang(lang) {
+    try {
+      document.cookie = COOKIE_KEY + '=' + encodeURIComponent(lang) +
+        '; path=/; max-age=31536000; SameSite=Lax';
+    } catch (_) {}
+  }
+
+  function readStoredLang() {
+    if (memLang && dict[memLang]) return memLang;
+    try {
+      const v = localStorage.getItem(STORAGE_KEY);
+      if (v) return v;
+    } catch (_) {}
+    try {
+      const v = sessionStorage.getItem(STORAGE_KEY);
+      if (v) return v;
+    } catch (_) {}
+    return readCookieLang();
+  }
+
+  function writeStoredLang(lang) {
+    memLang = lang;
+    try { localStorage.setItem(STORAGE_KEY, lang); } catch (_) {}
+    try { sessionStorage.setItem(STORAGE_KEY, lang); } catch (_) {}
+    writeCookieLang(lang);
+  }
 
   function detectLang() {
-    const saved = localStorage.getItem(STORAGE_KEY);
+    const saved = readStoredLang();
     if (saved && dict[saved]) return saved;
+    const def = (typeof window !== 'undefined' && window.PICSHARE_DEFAULT_LANG) || '';
+    if (def && dict[def]) return def;
     const nav = (navigator.language || 'zh').toLowerCase();
     if (nav.startsWith('ko')) return 'ko';
     if (nav.startsWith('en')) return 'en';
@@ -173,12 +213,12 @@
 
   function setLang(lang) {
     if (!dict[lang]) return;
-    localStorage.setItem(STORAGE_KEY, lang);
+    writeStoredLang(lang);
     applyLang(lang);
   }
 
   function getLang() {
-    return localStorage.getItem(STORAGE_KEY) || detectLang();
+    return readStoredLang() || detectLang();
   }
 
   function t(key, params) {
@@ -203,4 +243,6 @@
   }
 
   global.i18n = { t, setLang, getLang, applyLang };
+
+  applyLang(getLang());
 })(window);

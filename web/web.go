@@ -13,7 +13,7 @@ import (
 //go:embed *.html css/*.css js/*.js vendor/photoswipe/*.css vendor/photoswipe/*.js
 var files embed.FS
 
-func NewHandler() http.Handler {
+func NewHandler(defaultLang string) http.Handler {
 	sub, _ := fs.Sub(files, ".")
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p := r.URL.Path
@@ -41,6 +41,17 @@ func NewHandler() http.Handler {
 		}
 		w.Header().Set("Content-Type", ct)
 		w.Header().Set("Cache-Control", "public, max-age=3600")
+		if ext == ".html" && defaultLang != "" {
+			data, err := io.ReadAll(f)
+			if err != nil {
+				http.Error(w, "read error", 500)
+				return
+			}
+			s := strings.ReplaceAll(string(data), "<!--PICSHARE_DEFAULT_LANG-->", defaultLang)
+			w.Header().Set("Content-Length", itoa(int64(len(s))))
+			_, _ = io.WriteString(w, s)
+			return
+		}
 		w.Header().Set("Content-Length", itoa(stat.Size()))
 		_, _ = io.Copy(w, f)
 	})
