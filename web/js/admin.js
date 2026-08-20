@@ -230,10 +230,6 @@
 
       if (children.length) wireFolderClicks(path);
       if (photos.length) wirePhotoClicks(path);
-      if (path) {
-        wireDropZone(path);
-        wireUpload(path);
-      }
     }).catch(e => {
       grid.innerHTML = `<div class="empty">${t('error')}: ${e.message}</div>`;
     });
@@ -384,33 +380,6 @@
     bar.querySelector('.count').textContent = t('selected', { n: selected.length });
   }
 
-  function wireDropZone(album) {
-    const zone = document.getElementById('drop-zone');
-    if (!zone) return;
-    zone.addEventListener('click', () => document.getElementById('file-input').click());
-    zone.addEventListener('dragover', e => {
-      e.preventDefault();
-      zone.classList.add('dragover');
-    });
-    zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
-    zone.addEventListener('drop', e => {
-      e.preventDefault();
-      zone.classList.remove('dragover');
-      const files = Array.from(e.dataTransfer.files).filter(f => /\.(jpe?g|png|webp|gif|bmp|tiff?)$/i.test(f.name));
-      if (files.length) doUpload(album, files);
-    });
-  }
-
-  function wireUpload(album) {
-    const input = document.getElementById('file-input');
-    if (!input) return;
-    input.addEventListener('change', () => {
-      const files = Array.from(input.files);
-      if (files.length) doUpload(album, files);
-      input.value = '';
-    });
-  }
-
   function doUpload(album, files) {
     uploadFiles(album, files).then(r => {
       toast(t('upload_done') + ' (' + r.uploaded + ')', 'success');
@@ -419,6 +388,34 @@
   }
 
   function initGlobal() {
+    const uploadBtn = document.getElementById('upload-btn');
+    const zone = document.getElementById('drop-zone');
+    const input = document.getElementById('file-input');
+    if (uploadBtn && input) {
+      uploadBtn.addEventListener('click', () => input.click());
+    }
+    if (zone && input) {
+      zone.addEventListener('click', () => input.click());
+      zone.addEventListener('dragover', e => {
+        e.preventDefault();
+        zone.classList.add('dragover');
+      });
+      zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
+      zone.addEventListener('drop', e => {
+        e.preventDefault();
+        zone.classList.remove('dragover');
+        const files = Array.from(e.dataTransfer.files).filter(f => /\.(jpe?g|png|webp|gif|bmp|tiff?)$/i.test(f.name));
+        if (files.length && currentPath) doUpload(currentPath, files);
+      });
+    }
+    if (input) {
+      input.addEventListener('change', () => {
+        const files = Array.from(input.files);
+        if (files.length && currentPath) doUpload(currentPath, files);
+        input.value = '';
+      });
+    }
+
     const newBtn = document.getElementById('new-album-btn');
     if (newBtn) {
       newBtn.addEventListener('click', () => {
