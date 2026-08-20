@@ -23,34 +23,23 @@ func (h *PublicHandlers) ListAlbums(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if albums == nil {
-		albums = []gallery.Album{}
+		albums = []*gallery.Album{}
 	}
 	writeJSON(w, albums)
 }
 
 func (h *PublicHandlers) GetAlbum(w http.ResponseWriter, r *http.Request) {
-	name := r.PathValue("name")
-	if !validAlbumName(name) {
-		http.Error(w, "bad album name", 400)
+	name := r.PathValue("path")
+	if !validAlbumPath(name) {
+		http.Error(w, "bad album path", 400)
 		return
 	}
-	albums, err := gallery.Scan(h.PhotosDir, h.WebPrefix)
+	full, err := gallery.ScanAlbum(h.PhotosDir, name, h.WebPrefix)
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		http.Error(w, "album not found", 404)
 		return
 	}
-	for _, a := range albums {
-		if a.Name == name {
-			full, err := gallery.ScanAlbum(h.PhotosDir, name, h.WebPrefix)
-			if err != nil {
-				http.Error(w, err.Error(), 500)
-				return
-			}
-			writeJSON(w, full)
-			return
-		}
-	}
-	http.Error(w, "album not found", 404)
+	writeJSON(w, full)
 }
 
 func (h *PublicHandlers) ServeImage(w http.ResponseWriter, r *http.Request) {
@@ -82,12 +71,14 @@ func writeJSON(w http.ResponseWriter, v any) {
 	_ = enc.Encode(v)
 }
 
-func validAlbumName(name string) bool {
-	if name == "" || name == "." || name == ".." {
+func validAlbumPath(p string) bool {
+	if p == "" || strings.Contains(p, "\x00") {
 		return false
 	}
-	if strings.Contains(name, "/") || strings.Contains(name, "\x00") {
-		return false
+	for _, seg := range strings.Split(p, "/") {
+		if seg == "" || seg == "." || seg == ".." {
+			return false
+		}
 	}
 	return true
 }

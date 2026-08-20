@@ -6,18 +6,17 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/swys/picshare/internal/gallery"
 )
 
 func (h *AdminHandlers) Upload(w http.ResponseWriter, r *http.Request) {
 	album := r.URL.Query().Get("album")
-	if !validAlbumName(album) {
+	if !validAlbumPath(album) {
 		http.Error(w, "bad album", 400)
 		return
 	}
-	target := filepath.Join(h.PhotosDir, album)
+	target := filepath.Join(h.PhotosDir, filepath.FromSlash(album))
 	if err := os.MkdirAll(target, 0755); err != nil {
 		http.Error(w, "mkdir: "+err.Error(), 500)
 		return
@@ -73,10 +72,4 @@ func (h *AdminHandlers) Upload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, map[string]any{"status": "ok", "uploaded": uploaded, "album": album})
-}
-
-func normalizeAlbumName(s string) string {
-	s = strings.TrimSpace(s)
-	s = strings.Trim(s, "/.")
-	return s
 }

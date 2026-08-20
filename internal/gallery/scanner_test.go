@@ -123,6 +123,127 @@ func TestScanEmptyDir(t *testing.T) {
 	}
 }
 
+func TestScanNested(t *testing.T) {
+	dir := t.TempDir()
+	mk := func(p string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Join(dir, p), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write := func(p string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, p), []byte("x"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mk("01.主力产品")
+	write("01.主力产品/cover.jpg")
+	write("01.主力产品/01.jpg")
+	mk("01.主力产品/001.手机")
+	write("01.主力产品/001.手机/cover.jpg")
+	write("01.主力产品/001.手机/01.jpg")
+	mk("01.主力产品/002.平板")
+	write("01.主力产品/002.平板/01.jpg")
+	mk("02.配件")
+	write("02.配件/cover.jpg")
+
+	albums, err := Scan(dir, "/photos")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(albums) != 2 {
+		t.Fatalf("top level want 2, got %d", len(albums))
+	}
+	if albums[0].Name != "01.主力产品" {
+		t.Errorf("top[0] name = %q", albums[0].Name)
+	}
+	if albums[0].Path != "01.主力产品" {
+		t.Errorf("top[0] path = %q", albums[0].Path)
+	}
+	if albums[0].PhotoCount != 2 {
+		t.Errorf("top[0] photo_count = %d (own photos only)", albums[0].PhotoCount)
+	}
+	children := albums[0].Children
+	if len(children) != 2 {
+		t.Fatalf("children want 2, got %d", len(children))
+	}
+	if children[0].Name != "001.手机" {
+		t.Errorf("child[0] name = %q", children[0].Name)
+	}
+	if children[0].Path != "01.主力产品/001.手机" {
+		t.Errorf("child[0] path = %q", children[0].Path)
+	}
+	if children[0].CoverURL != "/photos/01.主力产品/001.手机/cover.jpg" {
+		t.Errorf("child[0] cover = %q", children[0].CoverURL)
+	}
+	if len(children[0].Children) != 0 {
+		t.Errorf("child[0] children want 0, got %d", len(children[0].Children))
+	}
+}
+
+func TestScanAlbumNested(t *testing.T) {
+	dir := t.TempDir()
+	album := filepath.Join(dir, "01.主力产品", "001.手机")
+	if err := os.MkdirAll(album, 0755); err != nil {
+		t.Fatal(err)
+	}
+	makeTestJPEG(t, filepath.Join(album, "01.jpg"), 100, 100)
+	makeTestJPEG(t, filepath.Join(album, "cover.jpg"), 200, 100)
+	if err := os.MkdirAll(filepath.Join(dir, "01.主力产品", "002.平板"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	full, err := ScanAlbum(dir, "01.主力产品/001.手机", "/photos")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if full.Name != "001.手机" {
+		t.Errorf("name = %q", full.Name)
+	}
+	if full.Path != "01.主力产品/001.手机" {
+		t.Errorf("path = %q", full.Path)
+	}
+	if len(full.Photos) != 2 {
+		t.Fatalf("want 2 photos, got %d", len(full.Photos))
+	}
+	if full.Photos[0].URL != "/photos/01.主力产品/001.手机/01.jpg" {
+		t.Errorf("photo url = %q", full.Photos[0].URL)
+	}
+	if len(full.Children) != 0 {
+		t.Errorf("want 0 children, got %d", len(full.Children))
+	}
+
+	parent, err := ScanAlbum(dir, "01.主力产品", "/photos")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(parent.Photos) != 0 {
+		t.Errorf("parent photos = %d, want 0", len(parent.Photos))
+	}
+	if len(parent.Children) != 2 {
+		t.Fatalf("parent children = %d, want 2", len(parent.Children))
+	}
+	if parent.Children[0].Name != "001.手机" {
+		t.Errorf("parent child[0] = %q", parent.Children[0].Name)
+	}
+}
+
+func TestCleanRelPath(t *testing.T) {
+	good := []string{"a", "a/b", "a/b/c", "01.主力/手机"}
+	for _, p := range good {
+		if _, err := CleanRelPath(p); err != nil {
+			t.Errorf("CleanRelPath(%q) unexpected error: %v", p, err)
+		}
+	}
+	bad := []string{"", ".", "..", "a/../b", "../a", "a/..", "/a", "a//b", "a/\x00b"}
+	for _, p := range bad {
+		if _, err := CleanRelPath(p); err == nil {
+			t.Errorf("CleanRelPath(%q) should fail", p)
+		}
+	}
+}
+
 func TestScanEmptyAlbum(t *testing.T) {
 	dir := t.TempDir()
 	album := filepath.Join(dir, "新相册")

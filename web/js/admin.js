@@ -40,7 +40,12 @@
     description: '描述',
     description_help: '在此相册目录下创建 description.txt 可显示描述',
     no_cover: '暂无封面',
+    folder: '文件夹',
+    subfolders: '{n} 个子分类',
+    please_login: '请先登录',
   };
+
+  let currentPath = null;
 
   function t(key, params) {
     let s = (zh[key] || key);
@@ -118,17 +123,37 @@
     return r.json();
   }
 
-  function getAlbumSlug() {
-    const m = location.pathname.match(/^\/admin\/album\/([^/]+)/);
-    return m ? decodeURIComponent(m[1]) : null;
+  function getAlbumPath() {
+    const m = location.pathname.match(/^\/admin\/album\/(.+)/);
+    if (!m) return null;
+    try {
+      return decodeURIComponent(m[1]);
+    } catch {
+      return null;
+    }
   }
 
-  function getBreadcrumb(currentAlbum) {
+  function parentPath(p) {
+    const i = p.lastIndexOf('/');
+    return i >= 0 ? p.slice(0, i) : '';
+  }
+
+  function getBreadcrumb(path) {
     const home = `<a href="/admin/">${t('home')}</a>`;
-    if (currentAlbum) {
-      return `${home} / <span>${escapeHtml(currentAlbum)}</span>`;
-    }
-    return `${home}`;
+    if (!path) return home;
+    const segs = path.split('/');
+    let acc = '';
+    let html = home;
+    segs.forEach((seg, i) => {
+      acc = acc ? acc + '/' + seg : seg;
+      html += ' / ';
+      if (i === segs.length - 1) {
+        html += `<span>${escapeHtml(seg)}</span>`;
+      } else {
+        html += `<a href="/admin/album/${encodeURIComponent(acc)}">${escapeHtml(seg)}</a>`;
+      }
+    });
+    return html;
   }
 
   function setProgress(p) {
@@ -160,39 +185,100 @@
     });
   }
 
-  function initHome() {
+  function renderManage(path) {
+    currentPath = path;
     const grid = document.getElementById('grid');
-    api('/api/admin/manage').then(data => {
-      document.getElementById('breadcrumb').innerHTML = getBreadcrumb();
-      const albums = (data && Array.isArray(data.albums)) ? data.albums : [];
-      if (!albums.length) {
+    const title = document.getElementById('album-title');
+    const desc = document.getElementById('album-desc');
+    const crumb = document.getElementById('breadcrumb');
+    const uploadBtn = document.getElementById('upload-btn');
+    const zone = document.getElementById('drop-zone');
+
+    crumb.innerHTML = getBreadcrumb(path);
+    title.textContent = '';
+    desc.textContent = '';
+
+    const url = path ? `/api/admin/manage/${encodeURIComponent(path)}` : '/api/admin/manage';
+    api(url).then(data => {
+      let children = [];
+      let photos = [];
+      if (path) {
+        const node = data.album;
+        if (!node) {
+          grid.innerHTML = `<div class="empty">${t('empty')}</div>`;
+          return;
+        }
+        title.textContent = node.name;
+        desc.textContent = node.description || '';
+        children = Array.isArray(node.children) ? node.children : [];
+        photos = Array.isArray(node.photos) ? node.photos : [];
+      } else {
+        children = Array.isArray(data.albums) ? data.albums : [];
+      }
+
+      if (uploadBtn) uploadBtn.style.display = path ? '' : 'none';
+      if (zone) zone.style.display = path ? '' : 'none';
+
+      if (!children.length && !photos.length) {
         grid.innerHTML = `<div class="empty">${t('empty')}</div>`;
         return;
       }
-      grid.innerHTML = albums.map(a => `
-        <div class="album-card" data-album="${escapeHtml(a.name)}">
-          <div class="cover">
-            ${a.cover_thumb
-              ? `<img src="${a.cover_thumb}" alt="" loading="lazy">`
-              : `<div class="placeholder" style="color:#999;font-size:13px">${t('no_cover')}</div>`}
-          </div>
-          <div class="meta">
-            <h3>${escapeHtml(a.name)}</h3>
-            <div class="count">${a.photo_count} ${t('photos')}</div>
-          </div>
-          <div class="row-actions">
-            <button data-action="rename">${t('rename')}</button>
-            <button data-action="delete">${t('delete')}</button>
-          </div>
-        </div>
-      `).join('');
-      wireAlbumClicks();
+
+      grid.innerHTML =
+        (children.length ? children.map(renderFolderCard).join('') : '') +
+        (photos.length ? photos.map(renderPhotoTile).join('') : '');
+
+      if (children.length) wireFolderClicks(path);
+      if (photos.length) wirePhotoClicks(path);
+      if (path) {
+        wireDropZone(path);
+        wireUpload(path);
+      }
     }).catch(e => {
       grid.innerHTML = `<div class="empty">${t('error')}: ${e.message}</div>`;
     });
   }
 
-  function wireAlbumClicks() {
+  function renderFolderCard(a) {
+    const hasChildren = Array.isArray(a.children) && a.children.length > 0;
+    const count = hasChildren
+      ? `${t('subfolders', { n: a.children.length })} · ${a.photo_count} ${t('photos')}`
+      : `${a.photo_count} ${t('photos')}`;
+    return `
+      <div class="album-card" data-album="${escapeHtml(a.path)}">
+        <div class="cover">
+          ${a.cover_thumb
+            ? `<img src="${a.cover_thumb}" alt="" loading="lazy">`
+            : `<div class="placeholder" style="color:#999;font-size:13px">${hasChildren ? t('folder') : t('no_cover')}</div>`}
+        </div>
+        <div class="meta">
+          <h3>${escapeHtml(a.name)}</h3>
+          <div class="count">${count}</div>
+        </div>
+        <div class="row-actions">
+          <button data-action="rename">${t('rename')}</button>
+          <button data-action="delete">${t('delete')}</button>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderPhotoTile(p) {
+    return `
+      <div class="photo-tile" data-name="${escapeHtml(p.name)}" data-cover="${p.is_cover}">
+        <img src="${p.thumb_url}" alt="" loading="lazy">
+        ${p.is_cover ? `<div class="badge">${t('cover_badge')}</div>` : ''}
+        <div class="check">✓</div>
+        <div class="row-actions">
+          <button data-action="setcover">${t('set_cover')}</button>
+          <button data-action="rename">${t('rename')}</button>
+          <button data-action="delete">${t('delete')}</button>
+        </div>
+      </div>
+    `;
+  }
+
+  function wireFolderClicks(path) {
     document.querySelectorAll('.album-card').forEach(card => {
       const album = card.dataset.album;
       card.addEventListener('click', e => {
@@ -206,7 +292,7 @@
               body: JSON.stringify({ paths: ['.'], album })
             }).then(() => {
               toast(t('deleted'), 'success');
-              initHome();
+              renderManage(path);
             }).catch(e => toast(e.message, 'error'));
           }
         } else if (action === 'rename') {
@@ -216,13 +302,14 @@
             fields: [{ name: 'name', label: t('new_name'), value: album }],
             onSubmit: data => {
               if (!data.name.trim()) return toast(t('fill_name'), 'error');
+              const name = album.split('/').pop();
               api('/api/admin/rename', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ album, from: album, to: data.name.trim() })
+                body: JSON.stringify({ album: parentPath(album), from: name, to: data.name.trim() })
               }).then(() => {
                 toast(t('renamed'), 'success');
-                initHome();
+                renderManage(path);
               }).catch(e => toast(e.message, 'error'));
             }
           });
@@ -231,51 +318,6 @@
         }
       });
     });
-  }
-
-  function initAlbum() {
-    const album = getAlbumSlug();
-    if (!album) return;
-    document.getElementById('breadcrumb').innerHTML = getBreadcrumb(album);
-
-    const uploadBtn = document.getElementById('upload-btn');
-    if (uploadBtn) {
-      uploadBtn.style.display = '';
-      uploadBtn.onclick = () => document.getElementById('file-input').click();
-    }
-
-    const grid = document.getElementById('grid');
-    api(`/api/admin/manage/${encodeURIComponent(album)}`).then(data => {
-      const a = data.album;
-      document.getElementById('album-title').textContent = a.name;
-      document.getElementById('album-desc').textContent = a.description || '';
-      const photos = Array.isArray(a.photos) ? a.photos : [];
-      if (!photos.length) {
-        grid.innerHTML = `<div class="empty">${t('empty')}</div>`;
-        return;
-      }
-      grid.innerHTML = photos.map(p => `
-        <div class="photo-tile" data-name="${escapeHtml(p.name)}" data-cover="${p.is_cover}">
-          <img src="${p.thumb_url}" alt="" loading="lazy">
-          ${p.is_cover ? `<div class="badge">${t('cover_badge')}</div>` : ''}
-          <div class="check">✓</div>
-          <div class="row-actions">
-            <button data-action="setcover">${t('set_cover')}</button>
-            <button data-action="rename">${t('rename')}</button>
-            <button data-action="delete">${t('delete')}</button>
-          </div>
-        </div>
-      `).join('');
-      wirePhotoClicks(album);
-    }).catch(e => {
-      grid.innerHTML = `<div class="empty">${t('error')}: ${e.message}</div>`;
-    });
-
-    wireDropZone(album);
-    wireUpload(album);
-
-    const zone = document.getElementById('drop-zone');
-    if (zone) zone.style.display = '';
   }
 
   function wirePhotoClicks(album) {
@@ -292,7 +334,7 @@
             body: JSON.stringify({ album, photo: name })
           }).then(() => {
             toast(t('cover_set'), 'success');
-            initAlbum();
+            renderManage(album);
           }).catch(e => toast(e.message, 'error'));
         } else if (action === 'rename') {
           e.stopPropagation();
@@ -307,7 +349,7 @@
                 body: JSON.stringify({ album, from: name, to: data.name.trim() })
               }).then(() => {
                 toast(t('renamed'), 'success');
-                initAlbum();
+                renderManage(album);
               }).catch(e => toast(e.message, 'error'));
             }
           });
@@ -320,7 +362,7 @@
               body: JSON.stringify({ paths: [name], album })
             }).then(() => {
               toast(t('deleted'), 'success');
-              initAlbum();
+              renderManage(album);
             }).catch(e => toast(e.message, 'error'));
           }
         } else {
@@ -372,7 +414,7 @@
   function doUpload(album, files) {
     uploadFiles(album, files).then(r => {
       toast(t('upload_done') + ' (' + r.uploaded + ')', 'success');
-      initAlbum();
+      renderManage(album);
     }).catch(e => toast(t('upload_failed') + ': ' + e.message, 'error'));
   }
 
@@ -386,13 +428,14 @@
           submitLabel: t('create'),
           onSubmit: data => {
             if (!data.name.trim()) return toast(t('fill_name'), 'error');
+            const album = currentPath ? currentPath + '/' + data.name.trim() : data.name.trim();
             api('/api/admin/mkdir', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ album: data.name.trim() })
+              body: JSON.stringify({ album })
             }).then(() => {
               toast(t('created'), 'success');
-              initHome();
+              renderManage(currentPath);
             }).catch(e => toast(e.message, 'error'));
           }
         });
@@ -405,14 +448,13 @@
         const selected = Array.from(document.querySelectorAll('.photo-tile.selected')).map(t => t.dataset.name);
         if (!selected.length) return toast(t('select_at_least_one'), 'error');
         if (!confirm(t('confirm_delete_selected', { n: selected.length }))) return;
-        const album = getAlbumSlug();
         api('/api/admin/delete', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ paths: selected, album })
+          body: JSON.stringify({ paths: selected, album: currentPath })
         }).then(() => {
           toast(t('deleted'), 'success');
-          initAlbum();
+          renderManage(currentPath);
         }).catch(e => toast(e.message, 'error'));
       });
     }
@@ -428,14 +470,14 @@
     const viewBtn = document.getElementById('view-public');
     if (viewBtn) {
       viewBtn.addEventListener('click', () => {
-        window.open('/', '_blank');
+        if (currentPath) window.open('/album/' + encodeURIComponent(currentPath), '_blank');
+        else window.open('/', '_blank');
       });
     }
   }
 
   document.addEventListener('DOMContentLoaded', () => {
     initGlobal();
-    if (getAlbumSlug()) initAlbum();
-    else initHome();
+    renderManage(getAlbumPath());
   });
 })();

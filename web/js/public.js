@@ -32,9 +32,14 @@
     return r.json();
   }
 
-  function getAlbumSlug() {
-    const m = location.pathname.match(/^\/album\/([^/]+)/);
-    return m ? decodeURIComponent(m[1]) : null;
+  function getAlbumPath() {
+    const m = location.pathname.match(/^\/album\/(.+)/);
+    if (!m) return null;
+    try {
+      return decodeURIComponent(m[1]);
+    } catch {
+      return null;
+    }
   }
 
   function getPageType() {
@@ -43,63 +48,102 @@
     return 'home';
   }
 
+  function renderCard(a) {
+    const hasChildren = Array.isArray(a.children) && a.children.length > 0;
+    const count = hasChildren
+      ? `${t('subfolders', { n: a.children.length })} · ${t('photo_total', { n: a.photo_count })}`
+      : t('photo_total', { n: a.photo_count });
+    return `
+      <a class="album-card${hasChildren ? ' folder' : ''}" href="/album/${encodeURIComponent(a.path)}">
+        <div class="cover">
+          ${a.cover_thumb
+            ? `<img src="${a.cover_thumb}" alt="${escapeHtml(a.name)}" loading="lazy">`
+            : `<div class="placeholder">${hasChildren ? t('folder') : t('no_cover')}</div>`}
+        </div>
+        <div class="meta">
+          <h3>${escapeHtml(a.name)}</h3>
+          <div class="count">${count}</div>
+          ${a.description ? `<div class="desc">${escapeHtml(a.description)}</div>` : ''}
+        </div>
+      </a>
+    `;
+  }
+
+  function buildBreadcrumb(path) {
+    const segs = path.split('/');
+    let acc = '';
+    let html = `<a href="/">${t('breadcrumb_home')}</a>`;
+    segs.forEach((seg, i) => {
+      acc = acc ? acc + '/' + seg : seg;
+      html += ' / ';
+      if (i === segs.length - 1) {
+        html += `<span>${escapeHtml(seg)}</span>`;
+      } else {
+        html += `<a href="/album/${encodeURIComponent(acc)}">${escapeHtml(seg)}</a>`;
+      }
+    });
+    return html;
+  }
+
+  function renderPhotos(photos) {
+    const grid = document.getElementById('photo-grid');
+    if (!photos.length) return false;
+    grid.innerHTML = photos.map(p => `
+      <a href="${p.url}" data-pswp-width="${p.width || 1600}" data-pswp-height="${p.height || 1067}" target="_blank">
+        <img src="${p.thumb_url}" alt="${escapeHtml(p.name)}" loading="lazy">
+      </a>
+    `).join('');
+    initPhotoSwipe();
+    return true;
+  }
+
   function initHome() {
     const listEl = document.getElementById('album-list');
+    const crumb = document.getElementById('breadcrumb');
     fetchJSON('/api/albums').then(albums => {
       const list = Array.isArray(albums) ? albums : [];
+      crumb.innerHTML = '';
       if (!list.length) {
         listEl.innerHTML = `<div class="empty">${t('empty')}</div>`;
         return;
       }
-      listEl.innerHTML = list.map(a => `
-        <a class="album-card" href="/album/${encodeURIComponent(a.name)}">
-          <div class="cover">
-            ${a.cover_thumb
-              ? `<img src="${a.cover_thumb}" alt="${escapeHtml(a.name)}" loading="lazy">`
-              : `<div class="placeholder">${t('no_cover')}</div>`}
-          </div>
-          <div class="meta">
-            <h3>${escapeHtml(a.name)}</h3>
-            <div class="count">${t('photo_total', { n: a.photo_count })}</div>
-            ${a.description ? `<div class="desc">${escapeHtml(a.description)}</div>` : ''}
-          </div>
-        </a>
-      `).join('');
+      listEl.innerHTML = list.map(renderCard).join('');
     }).catch(e => {
       listEl.innerHTML = `<div class="empty">${t('error')}: ${escapeHtml(e.message)}</div>`;
     });
   }
 
   function initAlbum() {
-    const slug = getAlbumSlug();
-    if (!slug) return;
+    const path = getAlbumPath();
+    if (!path) return;
+    const listEl = document.getElementById('album-list');
     const grid = document.getElementById('photo-grid');
     const crumb = document.getElementById('breadcrumb');
     const title = document.getElementById('album-title');
     const desc = document.getElementById('album-desc');
 
-    fetchJSON(`/api/albums/${encodeURIComponent(slug)}`).then(a => {
+    fetchJSON(`/api/albums/${encodeURIComponent(path)}`).then(a => {
       if (!a || !a.name) {
         grid.innerHTML = `<div class="empty">${t('not_found')}</div>`;
         return;
       }
       document.title = `${a.name} - ${t('site_title')}`;
       title.textContent = a.name;
-      crumb.innerHTML = `
-        <a href="/">${t('breadcrumb_home')}</a> / <span>${escapeHtml(a.name)}</span>
-      `;
+      crumb.innerHTML = buildBreadcrumb(a.path || path);
       if (a.description) desc.textContent = a.description;
-      const photos = a.photos || [];
-      if (!photos.length) {
+
+      const children = Array.isArray(a.children) ? a.children : [];
+      const photos = Array.isArray(a.photos) ? a.photos : [];
+
+      listEl.innerHTML = children.length ? children.map(renderCard).join('') : '';
+
+      if (photos.length) {
+        renderPhotos(photos);
+      } else if (!children.length) {
         grid.innerHTML = `<div class="empty">${t('album_empty')}</div>`;
-        return;
+      } else {
+        grid.innerHTML = '';
       }
-      grid.innerHTML = photos.map(p => `
-        <a href="${p.url}" data-pswp-width="${p.width || 1600}" data-pswp-height="${p.height || 1067}" target="_blank">
-          <img src="${p.thumb_url}" alt="${escapeHtml(p.name)}" loading="lazy">
-        </a>
-      `).join('');
-      initPhotoSwipe();
     }).catch(e => {
       grid.innerHTML = `<div class="empty">${t('error')}: ${escapeHtml(e.message)}</div>`;
     });
@@ -115,31 +159,6 @@
       showHideOpacity: true
     });
     lightbox.init();
-  }
-
-  function openLightbox(startIndex) {
-    if (typeof PhotoSwipe === 'undefined') return;
-    const links = document.querySelectorAll('#photo-grid a');
-    const items = Array.from(links).map(a => {
-      const img = a.querySelector('img');
-      return {
-        src: a.getAttribute('href'),
-        msrc: img.getAttribute('src'),
-        width: parseInt(a.dataset.pswpWidth) || 1600,
-        height: parseInt(a.dataset.pswpHeight) || 1067,
-        alt: img.getAttribute('alt') || ''
-      };
-    });
-    const pswp = document.querySelector('.pswp');
-    if (!pswp) return;
-    const g = new PhotoSwipe({
-      dataSource: items,
-      index: startIndex,
-      bgOpacity: 0.95,
-      showHideOpacity: true,
-      pswpModule: PhotoSwipe
-    });
-    g.init();
   }
 
   function escapeHtml(s) {

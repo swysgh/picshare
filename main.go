@@ -89,7 +89,7 @@ func main() {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /api/albums", pub.ListAlbums)
-	mux.HandleFunc("GET /api/albums/{name}", pub.GetAlbum)
+	mux.HandleFunc("GET /api/albums/{path...}", pub.GetAlbum)
 	mux.HandleFunc("GET /i/{path...}", pub.ServeImage)
 	mux.Handle("/thumb", thumbHandler)
 
@@ -101,7 +101,7 @@ func main() {
 		return auth.BasicAuth(cfg.AdminUser, cfg.AdminPass, next)
 	}
 	mux.Handle("GET /api/admin/manage", adminGuard(adm.ListManage))
-	mux.Handle("GET /api/admin/manage/{name}", adminGuard(adm.ListAlbumManage))
+	mux.Handle("GET /api/admin/manage/{path...}", adminGuard(adm.ListAlbumManage))
 	mux.Handle("POST /api/admin/mkdir", adminGuard(adm.Mkdir))
 	mux.Handle("POST /api/admin/upload", adminGuard(adm.Upload))
 	mux.Handle("POST /api/admin/rename", adminGuard(adm.Rename))

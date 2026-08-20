@@ -10,6 +10,7 @@ import (
 	_ "image/png"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -48,13 +49,15 @@ type Photo struct {
 }
 
 type Album struct {
-	Name        string  `json:"name"`
-	Slug        string  `json:"slug"`
-	Description string  `json:"description"`
-	CoverURL    string  `json:"cover_url"`
-	CoverThumb  string  `json:"cover_thumb"`
-	PhotoCount  int     `json:"photo_count"`
-	Photos      []Photo `json:"photos"`
+	Name        string   `json:"name"`
+	Path        string   `json:"path"`
+	Slug        string   `json:"slug"`
+	Description string   `json:"description"`
+	CoverURL    string   `json:"cover_url"`
+	CoverThumb  string   `json:"cover_thumb"`
+	PhotoCount  int      `json:"photo_count"`
+	Photos      []Photo  `json:"photos,omitempty"`
+	Children    []*Album `json:"children,omitempty"`
 }
 
 func IsImage(name string) bool {
@@ -112,63 +115,112 @@ func readDigit(s string, i *int) (int64, bool) {
 	return n, true
 }
 
-func Scan(root, webPrefix string) ([]Album, error) {
-	entries, err := os.ReadDir(root)
+// Scan returns the top-level albums. Each album may contain nested Children,
+// so subdirectories are browsable as multi-level folder categories.
+func Scan(root, webPrefix string) ([]*Album, error) {
+	return scanDir(root, "", webPrefix)
+}
+
+func scanDir(root, rel, webPrefix string) ([]*Album, error) {
+	dir := root
+	if rel != "" {
+		dir = filepath.Join(root, filepath.FromSlash(rel))
+	}
+	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil, nil
 		}
 		return nil, err
 	}
-	var albums []Album
+	var albums []*Album
 	for _, e := range entries {
 		if !e.IsDir() {
 			continue
 		}
-		dir := filepath.Join(root, e.Name())
-		cover, err := findCover(dir)
+		childRel := e.Name()
+		if rel != "" {
+			childRel = rel + "/" + e.Name()
+		}
+		a, err := scanNode(root, childRel, webPrefix, false)
 		if err != nil {
 			continue
 		}
-		photoNames, _ := listImages(dir)
-		desc, _ := os.ReadFile(filepath.Join(dir, "description.txt"))
-		slug := urlSlug(e.Name())
-		a := Album{
-			Name:        e.Name(),
-			Slug:        slug,
-			Description: strings.TrimSpace(string(desc)),
-			PhotoCount:  len(photoNames),
-			Photos:      []Photo{},
-		}
-		if cover != "" {
-			a.CoverURL = joinURL(webPrefix, e.Name(), cover)
-			a.CoverThumb = "/thumb?p=" + urlPathEscape(joinURL(webPrefix, e.Name(), cover)) + "&w=480"
-		}
 		albums = append(albums, a)
 	}
-	slices.SortFunc(albums, func(a, b Album) int {
+	slices.SortFunc(albums, func(a, b *Album) int {
 		return naturalLess(a.Name, b.Name)
 	})
 	return albums, nil
 }
 
-func ScanAlbum(root, album, webPrefix string) (*Album, error) {
-	dir := filepath.Join(root, album)
+// scanNode builds a single album node. When withPhotos is true the Photos
+// list is populated (album detail); otherwise only PhotoCount is filled so
+// the list view stays cheap.
+func scanNode(root, rel, webPrefix string, withPhotos bool) (*Album, error) {
+	dir := filepath.Join(root, filepath.FromSlash(rel))
+	cover, err := findCover(dir)
+	if err != nil {
+		return nil, err
+	}
+	photoNames, _ := listImages(dir)
+	desc, _ := os.ReadFile(filepath.Join(dir, "description.txt"))
+	children, _ := scanDir(root, rel, webPrefix)
+	name := rel
+	if i := strings.LastIndex(rel, "/"); i >= 0 {
+		name = rel[i+1:]
+	}
+	a := &Album{
+		Name:        name,
+		Path:        rel,
+		Slug:        urlSlug(rel),
+		Description: strings.TrimSpace(string(desc)),
+		PhotoCount:  len(photoNames),
+		Photos:      []Photo{},
+		Children:    children,
+	}
+	if withPhotos {
+		a.Photos = buildPhotos(root, rel, webPrefix, dir, cover)
+	}
+	if cover != "" {
+		a.CoverURL = joinURL(webPrefix, rel, cover)
+		a.CoverThumb = "/thumb?p=" + urlPathEscape(joinURL(webPrefix, rel, cover)) + "&w=480"
+	}
+	return a, nil
+}
+
+// ScanAlbum returns a single album (with photos and nested children) located
+// at the slash-separated relative path rel from root.
+func ScanAlbum(root, rel, webPrefix string) (*Album, error) {
+	clean, err := CleanRelPath(rel)
+	if err != nil {
+		return nil, fmt.Errorf("album not found")
+	}
+	dir := filepath.Join(root, filepath.FromSlash(clean))
 	info, err := os.Stat(dir)
 	if err != nil || !info.IsDir() {
 		return nil, fmt.Errorf("album not found")
 	}
-	cover, _ := findCover(dir)
-	names, _ := listImages(dir)
-	desc, _ := os.ReadFile(filepath.Join(dir, "description.txt"))
-	slug := urlSlug(album)
-	a := &Album{
-		Name:        album,
-		Slug:        slug,
-		Description: strings.TrimSpace(string(desc)),
-		PhotoCount:  len(names),
-		Photos:      []Photo{},
+	return scanNode(root, clean, webPrefix, true)
+}
+
+// CleanRelPath validates a slash-separated relative path and returns its
+// cleaned form, rejecting traversal and empty segments.
+func CleanRelPath(rel string) (string, error) {
+	if rel == "" || strings.Contains(rel, "\x00") {
+		return "", fmt.Errorf("bad path")
 	}
+	for _, seg := range strings.Split(rel, "/") {
+		if seg == "" || seg == "." || seg == ".." {
+			return "", fmt.Errorf("bad path")
+		}
+	}
+	return path.Clean(rel), nil
+}
+
+func buildPhotos(root, rel, webPrefix, dir, cover string) []Photo {
+	names, _ := listImages(dir)
+	photos := make([]Photo, 0, len(names))
 	for _, n := range names {
 		finfo, _ := os.Stat(filepath.Join(dir, n))
 		var size int64
@@ -178,10 +230,10 @@ func ScanAlbum(root, album, webPrefix string) (*Album, error) {
 			mtime = finfo.ModTime().Unix()
 		}
 		w, h := readImageSize(filepath.Join(dir, n))
-		a.Photos = append(a.Photos, Photo{
+		photos = append(photos, Photo{
 			Name:     n,
-			URL:      joinURL(webPrefix, album, n),
-			ThumbURL: "/thumb?p=" + urlPathEscape(joinURL(webPrefix, album, n)) + "&w=480",
+			URL:      joinURL(webPrefix, rel, n),
+			ThumbURL: "/thumb?p=" + urlPathEscape(joinURL(webPrefix, rel, n)) + "&w=480",
 			Size:     size,
 			Modified: mtime,
 			IsCover:  n == cover,
@@ -189,11 +241,7 @@ func ScanAlbum(root, album, webPrefix string) (*Album, error) {
 			Height:   h,
 		})
 	}
-	if cover != "" {
-		a.CoverURL = joinURL(webPrefix, album, cover)
-		a.CoverThumb = "/thumb?p=" + urlPathEscape(joinURL(webPrefix, album, cover)) + "&w=480"
-	}
-	return a, nil
+	return photos
 }
 
 func findCover(dir string) (string, error) {

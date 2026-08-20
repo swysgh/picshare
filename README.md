@@ -6,7 +6,7 @@
 
 - 单二进制，复制即用（`CGO_ENABLED=0` 静态编译，~10MB）
 - 无数据库、无 session
-- 文件系统即数据：每个子目录 = 一个相册
+- 文件系统即数据：每个子目录 = 一个相册，支持多级嵌套文件夹分类
 - 自动识别封面（`cover.{jpg,png,webp}` > `folder.png` > 首张图）
 - 缩略图懒生成 + 磁盘缓存（EXIF 自动旋转）
 - PhotoSwipe 灯箱（触摸/键盘/全屏）
@@ -60,8 +60,11 @@ photos/                          # 配置中的 photos_dir
 ├── 01.主力产品/                # 目录名前缀数字控制排序
 │   ├── cover.jpg                # 封面（约定）
 │   ├── description.txt          # 可选，相册描述
-│   ├── 01.jpg
-│   └── 02.jpg
+│   ├── 001.手机/                # 多级嵌套：子相册/子分类
+│   │   ├── cover.jpg
+│   │   └── 01.jpg
+│   └── 002.平板/
+│       └── cover.jpg
 └── 02.제품B/
     └── cover.jpg
 
@@ -70,21 +73,23 @@ config.json                      # 配置
 picshare                         # 二进制
 ```
 
+每个目录既是相册（可含图片）也是分类（可含子目录），可无限嵌套。
+
 ## URL 约定
 
-- `/` & `/index.html` — 前台首页（相册列表）
-- `/album/{name}` — 单相册页（灯箱浏览）
-- `/admin/` & `/admin/album/{name}` — 后台文件管理器
-- `/api/albums` — JSON: 相册列表
-- `/api/albums/{name}` — JSON: 单相册详情
+- `/` & `/index.html` — 前台首页（顶层相册/分类列表）
+- `/album/{path}` — 单相册页（路径可为多级，如 `/album/01.主力产品/001.手机`）
+- `/admin/` & `/admin/album/{path}` — 后台文件管理器
+- `/api/albums` — JSON: 顶层相册列表（含 `children` 递归子分类）
+- `/api/albums/{path}` — JSON: 单相册详情（多级路径）
 - `/thumb?p=/photos/...&w=480` — 缩略图（懒生成）
-- `/photos/{album}/{file}` — 原图（推荐 Nginx 直接服务）
+- `/photos/{path}/{file}` — 原图（推荐 Nginx 直接服务）
 
 后台 API（Basic Auth）：
-- `POST /api/admin/mkdir` — 建相册
-- `POST /api/admin/upload?album=...` — 上传（multipart）
-- `POST /api/admin/rename` — 重命名
-- `POST /api/admin/delete` — 删除
+- `POST /api/admin/mkdir` — 建相册（`album` 传完整路径，如 `01.主力产品/003.耳机`）
+- `POST /api/admin/upload?album={path}` — 上传（multipart）
+- `POST /api/admin/rename` — 重命名（文件或文件夹）
+- `POST /api/admin/delete` — 删除（文件/子目录；`paths:["."]` 删除整个相册）
 - `POST /api/admin/setcover` — 设封面
 
 ## 配置说明
