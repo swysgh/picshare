@@ -4,7 +4,7 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/picshare --config /etc/picshare.json
+ExecStart=/usr/bin/picshare --config /etc/picshare.json
 Restart=on-failure
 RestartSec=5
 User=picshare
