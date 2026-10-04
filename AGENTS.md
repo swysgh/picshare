@@ -32,5 +32,7 @@ make vet     # go vet
 ## 注意事项
 
 - `.order` 文件存放子文件夹手动排序，每行一个名字；由 `POST /api/admin/reorder` 写入。
+- `.hidden` 文件存放本相册内被隐藏的照片名；由 `POST /api/admin/sethidden` 写入。公开 API 自动过滤，后台可见，仍可作封面。
 - 照片展示顺序按文件 mtime 倒序（最新上传优先）。
+- 缩略图 URL 带 `&v=<mtime-ns>` 参数作为缓存破坏，源文件更新后浏览器会重新拉取。
 - `web/web.go` 使用 `go:embed`，新增静态文件需要被 embed pattern 覆盖。
