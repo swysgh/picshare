@@ -37,6 +37,10 @@ var coverNames = []string{
 	"folder.jpg", "folder.jpeg", "folder.png", "folder.webp",
 }
 
+// OrderFileName is the per-directory file that records manual child ordering.
+// Each line is a child directory name in the desired display order.
+const OrderFileName = ".order"
+
 type Photo struct {
 	Name      string `json:"name"`
 	URL       string `json:"url"`
@@ -148,10 +152,65 @@ func scanDir(root, rel, webPrefix string) ([]*Album, error) {
 		}
 		albums = append(albums, a)
 	}
-	slices.SortFunc(albums, func(a, b *Album) int {
+	sortAlbumsByOrder(albums, readOrder(dir))
+	return albums, nil
+}
+
+// readOrder reads the .order file in dir, returning the listed names in order.
+// Missing file or read error yields nil.
+func readOrder(dir string) []string {
+	data, err := os.ReadFile(filepath.Join(dir, OrderFileName))
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		out = append(out, line)
+	}
+	return out
+}
+
+// WriteOrder persists the manual child order for dir. Pass nil or an empty
+// slice to remove the order file.
+func WriteOrder(dir string, names []string) error {
+	p := filepath.Join(dir, OrderFileName)
+	if len(names) == 0 {
+		if err := os.Remove(p); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return err
+		}
+		return nil
+	}
+	body := strings.Join(names, "\n") + "\n"
+	return os.WriteFile(p, []byte(body), 0644)
+}
+
+// sortAlbumsByOrder sorts albums so that names appearing in order come first
+// in that sequence; the remainder keep natural name order.
+func sortAlbumsByOrder(albums []*Album, order []string) {
+	rank := make(map[string]int, len(order))
+	for i, n := range order {
+		if _, dup := rank[n]; !dup {
+			rank[n] = i
+		}
+	}
+	slices.SortStableFunc(albums, func(a, b *Album) int {
+		ra, oka := rank[a.Name]
+		rb, okb := rank[b.Name]
+		if oka && okb {
+			return cmp.Compare(ra, rb)
+		}
+		if oka {
+			return -1
+		}
+		if okb {
+			return 1
+		}
 		return naturalLess(a.Name, b.Name)
 	})
-	return albums, nil
 }
 
 // scanNode builds a single album node. When withPhotos is true the Photos
@@ -241,6 +300,13 @@ func buildPhotos(root, rel, webPrefix, dir, cover string) []Photo {
 			Height:   h,
 		})
 	}
+	// Newest upload first; fall back to natural name order on ties.
+	slices.SortStableFunc(photos, func(a, b Photo) int {
+		if a.Modified != b.Modified {
+			return cmp.Compare(b.Modified, a.Modified)
+		}
+		return naturalLess(a.Name, b.Name)
+	})
 	return photos
 }
 

@@ -43,6 +43,9 @@
     folder: '文件夹',
     subfolders: '{n} 个子分类',
     please_login: '请先登录',
+    reorder_saved: '顺序已保存',
+    reorder_failed: '保存顺序失败',
+    drag_to_reorder: '拖拽可调整顺序',
   };
 
   let currentPath = null;
@@ -228,7 +231,10 @@
         (children.length ? children.map(renderFolderCard).join('') : '') +
         (photos.length ? photos.map(renderPhotoTile).join('') : '');
 
-      if (children.length) wireFolderClicks(path);
+      if (children.length) {
+        wireFolderClicks(path);
+        wireFolderDragSort(path);
+      }
       if (photos.length) wirePhotoClicks(path);
     }).catch(e => {
       grid.innerHTML = `<div class="empty">${t('error')}: ${e.message}</div>`;
@@ -241,7 +247,7 @@
       ? `${t('subfolders', { n: a.children.length })} · ${a.photo_count} ${t('photos')}`
       : `${a.photo_count} ${t('photos')}`;
     return `
-      <div class="album-card" data-album="${escapeHtml(a.path)}">
+      <div class="album-card" data-album="${escapeHtml(a.path)}" data-name="${escapeHtml(a.name)}" draggable="true" title="${escapeHtml(t('drag_to_reorder'))}">
         <div class="cover">
           ${a.cover_thumb
             ? `<img src="${a.cover_thumb}" alt="" loading="lazy">`
@@ -313,6 +319,72 @@
           location.href = `/admin/album/${encodeURIComponent(album)}`;
         }
       });
+    });
+  }
+
+  function wireFolderDragSort(path) {
+    const cards = Array.from(document.querySelectorAll('.album-card'));
+    if (cards.length < 2) return;
+    let dragEl = null;
+
+    cards.forEach(card => {
+      card.addEventListener('dragstart', e => {
+        // Do not start a reorder drag when the user is clicking an action button.
+        if (e.target.closest('.row-actions')) {
+          e.preventDefault();
+          return;
+        }
+        dragEl = card;
+        card.classList.add('dragging');
+        e.dataTransfer.effectAllowed = 'move';
+        try { e.dataTransfer.setData('text/plain', card.dataset.name); } catch (_) {}
+      });
+      card.addEventListener('dragend', () => {
+        card.classList.remove('dragging');
+        cards.forEach(c => c.classList.remove('drop-target'));
+        dragEl = null;
+      });
+      card.addEventListener('dragover', e => {
+        if (!dragEl || dragEl === card) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        card.classList.add('drop-target');
+      });
+      card.addEventListener('dragleave', () => {
+        card.classList.remove('drop-target');
+      });
+      card.addEventListener('drop', e => {
+        if (!dragEl || dragEl === card) return;
+        e.preventDefault();
+        card.classList.remove('drop-target');
+        const grid = card.parentNode;
+        const siblings = Array.from(grid.querySelectorAll('.album-card'));
+        const fromIdx = siblings.indexOf(dragEl);
+        const toIdx = siblings.indexOf(card);
+        if (fromIdx < 0 || toIdx < 0) return;
+        if (fromIdx < toIdx) {
+          grid.insertBefore(dragEl, card.nextSibling);
+        } else {
+          grid.insertBefore(dragEl, card);
+        }
+        saveFolderOrder(path);
+      });
+    });
+  }
+
+  function saveFolderOrder(path) {
+    const names = Array.from(document.querySelectorAll('.album-card'))
+      .map(c => c.dataset.name)
+      .filter(Boolean);
+    api('/api/admin/reorder', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ album: path || '', names })
+    }).then(() => {
+      toast(t('reorder_saved'), 'success');
+    }).catch(e => {
+      toast(t('reorder_failed') + ': ' + e.message, 'error');
+      renderManage(path);
     });
   }
 

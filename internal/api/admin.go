@@ -200,8 +200,7 @@ func (h *AdminHandlers) Rename(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]string{"status": "ok"})
 }
 
-func (h *AdminHandlers) SetCover(w http.ResponseWriter, r *http.Request) {
-	var req struct {
+func (h *AdminHandlers) SetCover(w http.ResponseWriter, r *http.Request) {	var req struct {
 		Album string `json:"album"`
 		Photo string `json:"photo"`
 	}
@@ -234,6 +233,62 @@ func (h *AdminHandlers) SetCover(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, map[string]string{"status": "ok", "cover": "cover" + ext})
+}
+
+// Reorder persists a manual child-directory order for an album ("" = root).
+// The names slice must list existing subdirectory names of that album.
+func (h *AdminHandlers) Reorder(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Album string   `json:"album"`
+		Names []string `json:"names"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "bad json", 400)
+		return
+	}
+	album := strings.TrimSpace(req.Album)
+	if album != "" && !validAlbumPath(album) {
+		http.Error(w, "bad album", 400)
+		return
+	}
+	dir := h.PhotosDir
+	if album != "" {
+		dir = filepath.Join(h.PhotosDir, filepath.FromSlash(album))
+	}
+	if !withinRoot(h.PhotosDir, dir) {
+		http.Error(w, "path traversal", 400)
+		return
+	}
+	fi, err := os.Stat(dir)
+	if err != nil || !fi.IsDir() {
+		http.Error(w, "album not found", 404)
+		return
+	}
+	clean := make([]string, 0, len(req.Names))
+	seen := make(map[string]bool, len(req.Names))
+	for _, n := range req.Names {
+		n = filepath.Base(strings.TrimSpace(n))
+		if !validFileName(n) {
+			http.Error(w, "bad name", 400)
+			return
+		}
+		if seen[n] {
+			continue
+		}
+		sub := filepath.Join(dir, n)
+		sfi, err := os.Stat(sub)
+		if err != nil || !sfi.IsDir() {
+			http.Error(w, "unknown child: "+n, 400)
+			return
+		}
+		seen[n] = true
+		clean = append(clean, n)
+	}
+	if err := gallery.WriteOrder(dir, clean); err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	writeJSON(w, map[string]string{"status": "ok"})
 }
 
 func (h *AdminHandlers) invalidateThumb(album, name string) {

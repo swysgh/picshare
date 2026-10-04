@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"slices"
 	"testing"
+	"time"
 )
 
 func TestNaturalLess(t *testing.T) {
@@ -275,6 +276,97 @@ func TestIsImage(t *testing.T) {
 		if IsImage(in) != want {
 			t.Errorf("IsImage(%q) = %v, want %v", in, IsImage(in), want)
 		}
+	}
+}
+
+func TestScanWithManualOrder(t *testing.T) {
+	dir := t.TempDir()
+	for _, n := range []string{"alpha", "beta", "gamma", "delta"} {
+		if err := os.MkdirAll(filepath.Join(dir, n), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// No .order yet: natural name sort.
+	albums, err := Scan(dir, "/photos")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := []string{albums[0].Name, albums[1].Name, albums[2].Name, albums[3].Name}
+	want := []string{"alpha", "beta", "delta", "gamma"}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("default sort = %v, want %v", got, want)
+		}
+	}
+
+	// Write a manual order.
+	if err := WriteOrder(dir, []string{"gamma", "alpha", "delta"}); err != nil {
+		t.Fatal(err)
+	}
+	albums, err = Scan(dir, "/photos")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got = []string{albums[0].Name, albums[1].Name, albums[2].Name, albums[3].Name}
+	// Listed names first in order; unlisted (beta) after, natural sorted.
+	want = []string{"gamma", "alpha", "delta", "beta"}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("manual sort = %v, want %v", got, want)
+		}
+	}
+
+	// .order referencing a missing dir is ignored.
+	if err := WriteOrder(dir, []string{"ghost", "beta"}); err != nil {
+		t.Fatal(err)
+	}
+	albums, err = Scan(dir, "/photos")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if albums[0].Name != "beta" {
+		t.Errorf("missing-order entry should be skipped; first = %q", albums[0].Name)
+	}
+
+	// WriteOrder with empty list removes the file.
+	if err := WriteOrder(dir, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, OrderFileName)); !os.IsNotExist(err) {
+		t.Errorf("expected .order removed, stat err = %v", err)
+	}
+}
+
+func TestPhotosSortedByMtime(t *testing.T) {
+	dir := t.TempDir()
+	album := filepath.Join(dir, "a")
+	if err := os.MkdirAll(album, 0755); err != nil {
+		t.Fatal(err)
+	}
+	mk := func(name string, mtime time.Time) {
+		t.Helper()
+		p := filepath.Join(album, name)
+		makeTestJPEG(t, p, 10, 10)
+		if err := os.Chtimes(p, mtime, mtime); err != nil {
+			t.Fatal(err)
+		}
+	}
+	base := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	mk("old.jpg", base)
+	mk("new.jpg", base.Add(2*time.Hour))
+	mk("mid.jpg", base.Add(1*time.Hour))
+
+	full, err := ScanAlbum(dir, "a", "/photos")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(full.Photos) != 3 {
+		t.Fatalf("want 3 photos, got %d", len(full.Photos))
+	}
+	// Expect newest first.
+	if full.Photos[0].Name != "new.jpg" || full.Photos[1].Name != "mid.jpg" || full.Photos[2].Name != "old.jpg" {
+		t.Errorf("photo mtime sort wrong: %v, %v, %v",
+			full.Photos[0].Name, full.Photos[1].Name, full.Photos[2].Name)
 	}
 }
 

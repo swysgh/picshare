@@ -129,6 +129,20 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   border-color: var(--accent);
 }
 
+.album-card[draggable="true"] {
+  cursor: grab;
+}
+
+.album-card.dragging {
+  opacity: 0.4;
+  cursor: grabbing;
+}
+
+.album-card.drop-target {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
 .album-card.folder .cover {
   background:
     linear-gradient(135deg, rgba(59,130,246,0.15), rgba(59,130,246,0.02)),
