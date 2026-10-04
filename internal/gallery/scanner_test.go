@@ -99,8 +99,15 @@ func TestScanAndCover(t *testing.T) {
 	if len(full.Photos) != 4 {
 		t.Fatalf("want 4 photos, got %d", len(full.Photos))
 	}
-	if full.Photos[0].Name != "01.jpg" {
-		t.Errorf("first photo = %q", full.Photos[0].Name)
+	// Order depends on mtime; just assert all expected files are present.
+	gotNames := map[string]bool{}
+	for _, p := range full.Photos {
+		gotNames[p.Name] = true
+	}
+	for _, want := range []string{"01.jpg", "02.jpg", "03.jpg", "cover.jpg"} {
+		if !gotNames[want] {
+			t.Errorf("missing photo %q in %v", want, gotNames)
+		}
 	}
 	coverCount := 0
 	for _, p := range full.Photos {
@@ -208,8 +215,19 @@ func TestScanAlbumNested(t *testing.T) {
 	if len(full.Photos) != 2 {
 		t.Fatalf("want 2 photos, got %d", len(full.Photos))
 	}
-	if full.Photos[0].URL != "/photos/01.主力产品/001.手机/01.jpg" {
-		t.Errorf("photo url = %q", full.Photos[0].URL)
+	// The photo order depends on mtime (newest first); assert the set of
+	// URLs rather than a specific position.
+	gotURLs := map[string]bool{}
+	for _, p := range full.Photos {
+		gotURLs[p.URL] = true
+	}
+	for _, want := range []string{
+		"/photos/01.主力产品/001.手机/01.jpg",
+		"/photos/01.主力产品/001.手机/cover.jpg",
+	} {
+		if !gotURLs[want] {
+			t.Errorf("missing photo url %q in %v", want, gotURLs)
+		}
 	}
 	if len(full.Children) != 0 {
 		t.Errorf("want 0 children, got %d", len(full.Children))
