@@ -51,7 +51,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	cached := h.cachePath(src, size)
-	if fi, err := os.Stat(cached); err == nil && fi.Size() > 0 {
+	if h.cacheFresh(cached, src) {
 		w.Header().Set("Cache-Control", "public, max-age=2592000")
 		w.Header().Set("Content-Type", "image/jpeg")
 		http.ServeFile(w, r, cached)
@@ -66,6 +66,22 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "public, max-age=2592000")
 	w.Header().Set("Content-Type", "image/jpeg")
 	http.ServeFile(w, r, cached)
+}
+
+// cacheFresh reports whether the cached thumbnail exists and is at least as
+// new as the source file. If the source was modified after the cache was
+// generated (e.g. SetCover replaced cover.jpg), the cache is considered stale
+// and must be regenerated.
+func (h *Handler) cacheFresh(cached, src string) bool {
+	ci, err := os.Stat(cached)
+	if err != nil || ci.Size() == 0 {
+		return false
+	}
+	si, err := os.Stat(src)
+	if err != nil {
+		return false
+	}
+	return !ci.ModTime().Before(si.ModTime())
 }
 
 func (h *Handler) resolveSource(rawPath string) (string, error) {

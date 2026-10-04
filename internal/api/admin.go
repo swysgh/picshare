@@ -227,11 +227,17 @@ func (h *AdminHandlers) SetCover(w http.ResponseWriter, r *http.Request) {	var r
 	}
 	for _, old := range []string{"cover.jpg", "cover.jpeg", "cover.png", "cover.webp"} {
 		_ = os.Remove(filepath.Join(albumDir, old))
+		h.invalidateThumb(req.Album, old)
 	}
 	if err := copyFile(src, cover); err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
+	// Ensure subsequent thumbnail requests for the new cover miss the cache
+	// even when the copy preserves an mtime older than a previously cached
+	// thumbnail. The thumb handler also re-checks source mtime, but doing it
+	// here makes the intent explicit and avoids stale hits from proxies.
+	h.invalidateThumb(req.Album, "cover"+ext)
 	writeJSON(w, map[string]string{"status": "ok", "cover": "cover" + ext})
 }
 

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func makeTestImage(t *testing.T, path string, w, h int) {
@@ -69,5 +70,47 @@ func TestResolvePathTraversal(t *testing.T) {
 	}
 	if _, err := h.resolveSource("/photos/../../etc/passwd"); err == nil {
 		t.Errorf("expected path traversal to be rejected")
+	}
+}
+
+func TestCacheFresh(t *testing.T) {
+	dir := t.TempDir()
+	photosDir := filepath.Join(dir, "photos")
+	thumbsDir := filepath.Join(dir, "thumbs")
+	src := filepath.Join(photosDir, "cover.jpg")
+	makeTestImage(t, src, 100, 100)
+
+	h := &Handler{
+		PhotosDir: photosDir,
+		ThumbsDir: thumbsDir,
+		WebPrefix: "/photos",
+	}
+	cached := h.cachePath(src, 480)
+
+	// No cache yet: not fresh.
+	if h.cacheFresh(cached, src) {
+		t.Errorf("expected no cache to be stale")
+	}
+
+	// Generate a cache, ensure it is fresh (cached >= src mtime).
+	if err := h.generate(src, cached, 480); err != nil {
+		t.Fatal(err)
+	}
+	// Force cache mtime to be after source.
+	now := time.Now()
+	if err := os.Chtimes(cached, now, now); err != nil {
+		t.Fatal(err)
+	}
+	if !h.cacheFresh(cached, src) {
+		t.Errorf("expected fresh cache after generate")
+	}
+
+	// Simulate SetCover replacing the source with a newer file.
+	future := now.Add(2 * time.Second)
+	if err := os.Chtimes(src, future, future); err != nil {
+		t.Fatal(err)
+	}
+	if h.cacheFresh(cached, src) {
+		t.Errorf("expected stale cache when source is newer than cache")
 	}
 }
