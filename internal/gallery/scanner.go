@@ -13,6 +13,7 @@ import (
 	"path"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -283,9 +284,33 @@ func scanNode(root, rel, webPrefix string, withPhotos bool) (*Album, error) {
 	}
 	if cover != "" {
 		a.CoverURL = joinURL(webPrefix, rel, cover)
-		a.CoverThumb = "/thumb?p=" + urlPathEscape(joinURL(webPrefix, rel, cover)) + "&w=480"
+		var coverNano int64
+		if fi, err := os.Stat(filepath.Join(dir, cover)); err == nil {
+			coverNano = fi.ModTime().UnixNano()
+		}
+		a.CoverThumb = "/thumb?p=" + urlPathEscape(joinURL(webPrefix, rel, cover)) + "&w=480" + cacheBust(coverNano)
 	}
 	return a, nil
+}
+
+// cacheBust returns a "&v=<mtime-ns>" query fragment so browsers refetch a
+// thumbnail when the underlying file changes, instead of relying on a
+// long-lived cached copy. Nanosecond precision avoids collisions when the
+// same file is replaced twice within one second (e.g. SetCover).
+func cacheBust(nano int64) string {
+	if nano <= 0 {
+		return ""
+	}
+	return "&v=" + strconv.FormatInt(nano, 10)
+}
+
+// mtimeNano extracts the file's modification time in nanoseconds, or 0 when
+// the FileInfo is unavailable.
+func mtimeNano(fi os.FileInfo) int64 {
+	if fi == nil {
+		return 0
+	}
+	return fi.ModTime().UnixNano()
 }
 
 // ScanAlbum returns a single album (with photos and nested children) located
@@ -354,7 +379,7 @@ func buildPhotos(root, rel, webPrefix, dir, cover string, includeHidden bool) []
 		photos = append(photos, Photo{
 			Name:     n,
 			URL:      joinURL(webPrefix, rel, n),
-			ThumbURL: "/thumb?p=" + urlPathEscape(joinURL(webPrefix, rel, n)) + "&w=480",
+			ThumbURL: "/thumb?p=" + urlPathEscape(joinURL(webPrefix, rel, n)) + "&w=480" + cacheBust(mtimeNano(finfo)),
 			Size:     size,
 			Modified: mtime,
 			IsCover:  n == cover,
