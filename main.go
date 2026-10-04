@@ -22,7 +22,11 @@ import (
 	webui "github.com/swys/picshare/web"
 )
 
-const version = "1.0.0"
+// version is the build version. It is injected at build time via
+//   -ldflags "-X main.version=<version>"
+// and defaults to "dev" for unversioned local builds. No version number is
+// hard-coded here; releases always derive it from the git tag.
+var version = "dev"
 
 func main() {
 	var (

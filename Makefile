@@ -1,7 +1,9 @@
 .PHONY: build run test clean install init
 
 BINARY := picshare
-VERSION := 1.0.0
+# Inject the most recent git tag (without the leading "v") as the build
+# version. Falls back to "dev" when no tags exist.
+VERSION := $(shell git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//' || echo dev)
 LDFLAGS := -s -w -X main.version=$(VERSION)
 
 build:

@@ -1,0 +1,62 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+
+      - name: Run tests
+        run: go test ./...
+
+      - name: Extract tag
+        id: meta
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Build linux/amd64
+        env:
+          CGO_ENABLED: 0
+          GOOS: linux
+          GOARCH: amd64
+        run: |
+          go build \
+            -ldflags="-s -w -X main.version=${{ steps.meta.outputs.version }}" \
+            -o picshare .
+          ls -la picshare
+          file picshare || true
+
+      - name: Package
+        run: |
+          cp picshare picshare-linux-amd64
+          tar -czf picshare-linux-amd64.tar.gz picshare-linux-amd64
+          sha256sum picshare-linux-amd64.tar.gz > picshare-linux-amd64.tar.gz.sha256
+          ls -la picshare-linux-amd64*
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          name: ${{ steps.meta.outputs.tag }}
+          generate_release_notes: true
+          files: |
+            picshare-linux-amd64.tar.gz
+            picshare-linux-amd64.tar.gz.sha256
