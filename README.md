@@ -151,12 +151,14 @@ make clean    # 清理二进制 + photos/thumbs
 
 ## 发布
 
-打 `v*` 开头的 tag 并 push，GitHub Actions 会自动跑测试、编译 linux/amd64 二进制并创建 Release：
+打 `v*` 开头的 tag 并 push，GitHub Actions 会自动跑测试、编译 linux/amd64 单文件二进制（无后缀）并创建 Release，附上 `picshare` 可执行文件：
 
 ```bash
 git tag v0.0.2
 git push origin v0.0.2
 ```
+
+下载后直接 `chmod +x picshare && ./picshare --config config.json` 即可使用。
 
 ## 许可
 
