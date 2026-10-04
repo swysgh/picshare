@@ -46,6 +46,10 @@
     reorder_saved: '顺序已保存',
     reorder_failed: '保存顺序失败',
     drag_to_reorder: '拖拽可调整顺序',
+    hide: '隐藏',
+    unhide: '取消隐藏',
+    hidden_badge: '已隐藏',
+    hidden_changed: '已更新',
   };
 
   let currentPath = null;
@@ -266,13 +270,16 @@
   }
 
   function renderPhotoTile(p) {
+    const hiddenCls = p.hidden ? ' hidden-photo' : '';
     return `
-      <div class="photo-tile" data-name="${escapeHtml(p.name)}" data-cover="${p.is_cover}">
+      <div class="photo-tile${hiddenCls}" data-name="${escapeHtml(p.name)}" data-cover="${p.is_cover}" data-hidden="${p.hidden ? 1 : 0}">
         <img src="${p.thumb_url}" alt="" loading="lazy">
         ${p.is_cover ? `<div class="badge">${t('cover_badge')}</div>` : ''}
+        ${p.hidden ? `<div class="badge badge-hidden">${t('hidden_badge')}</div>` : ''}
         <div class="check">✓</div>
         <div class="row-actions">
           <button data-action="setcover">${t('set_cover')}</button>
+          <button data-action="togglehide">${p.hidden ? t('unhide') : t('hide')}</button>
           <button data-action="rename">${t('rename')}</button>
           <button data-action="delete">${t('delete')}</button>
         </div>
@@ -402,6 +409,17 @@
             body: JSON.stringify({ album, photo: name })
           }).then(() => {
             toast(t('cover_set'), 'success');
+            renderManage(album);
+          }).catch(e => toast(e.message, 'error'));
+        } else if (action === 'togglehide') {
+          e.stopPropagation();
+          const newHidden = tile.dataset.hidden !== '1';
+          api('/api/admin/sethidden', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ album, photo: name, hidden: newHidden })
+          }).then(() => {
+            toast(t('hidden_changed'), 'success');
             renderManage(album);
           }).catch(e => toast(e.message, 'error'));
         } else if (action === 'rename') {

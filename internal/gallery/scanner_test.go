@@ -370,6 +370,90 @@ func TestPhotosSortedByMtime(t *testing.T) {
 	}
 }
 
+func TestHiddenPhotos(t *testing.T) {
+	dir := t.TempDir()
+	album := filepath.Join(dir, "a")
+	if err := os.MkdirAll(album, 0755); err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range []string{"01.jpg", "02.jpg", "03.jpg"} {
+		makeTestJPEG(t, filepath.Join(album, n), 10, 10)
+	}
+	// Hide 02.jpg.
+	if err := WriteHidden(album, []string{"02.jpg"}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Public scan: hidden excluded.
+	pub, err := ScanAlbum(dir, "a", "/photos")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pub.Photos) != 2 {
+		t.Fatalf("public want 2 photos, got %d", len(pub.Photos))
+	}
+	for _, p := range pub.Photos {
+		if p.Name == "02.jpg" {
+			t.Errorf("public should not see hidden photo")
+		}
+		if p.Hidden {
+			t.Errorf("public photo %s unexpectedly marked hidden", p.Name)
+		}
+	}
+	// PhotoCount should exclude hidden too.
+	if pub.PhotoCount != 2 {
+		t.Errorf("public PhotoCount want 2, got %d", pub.PhotoCount)
+	}
+
+	// Admin scan: hidden included with flag.
+	adm, err := ScanAlbumAdmin(dir, "a", "/photos")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(adm.Photos) != 3 {
+		t.Fatalf("admin want 3 photos, got %d", len(adm.Photos))
+	}
+	var sawHidden bool
+	for _, p := range adm.Photos {
+		if p.Name == "02.jpg" {
+			sawHidden = true
+			if !p.Hidden {
+				t.Errorf("admin should see 02.jpg marked hidden")
+			}
+		}
+	}
+	if !sawHidden {
+		t.Errorf("admin should see hidden photo 02.jpg")
+	}
+
+	// Hidden photo can be the cover: simulate by writing cover.jpg as hidden.
+	makeTestJPEG(t, filepath.Join(album, "cover.jpg"), 10, 10)
+	if err := WriteHidden(album, []string{"02.jpg", "cover.jpg"}); err != nil {
+		t.Fatal(err)
+	}
+	pub2, err := ScanAlbum(dir, "a", "/photos")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pub2.CoverURL == "" {
+		t.Errorf("cover should still resolve even when hidden")
+	}
+	// cover.jpg should not appear in the public photos list.
+	for _, p := range pub2.Photos {
+		if p.Name == "cover.jpg" {
+			t.Errorf("hidden cover.jpg should not appear in public photos")
+		}
+	}
+
+	// Clearing hidden removes the file.
+	if err := WriteHidden(album, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(album, HiddenFileName)); !os.IsNotExist(err) {
+		t.Errorf("expected %s removed, stat err = %v", HiddenFileName, err)
+	}
+}
+
 func TestScanAlbumSizes(t *testing.T) {
 	dir := t.TempDir()
 	album := filepath.Join(dir, "size_test")

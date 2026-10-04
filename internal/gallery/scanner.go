@@ -41,6 +41,11 @@ var coverNames = []string{
 // Each line is a child directory name in the desired display order.
 const OrderFileName = ".order"
 
+// HiddenFileName is the per-directory file that lists photos hidden from the
+// public album view. Each line is a photo file name. Hidden photos are still
+// visible in the admin UI and may still be used as the album cover.
+const HiddenFileName = ".hidden"
+
 type Photo struct {
 	Name      string `json:"name"`
 	URL       string `json:"url"`
@@ -48,6 +53,7 @@ type Photo struct {
 	Size      int64  `json:"size"`
 	Modified  int64  `json:"modified"`
 	IsCover   bool   `json:"is_cover"`
+	Hidden    bool   `json:"hidden,omitempty"`
 	Width     int    `json:"width"`
 	Height    int    `json:"height"`
 }
@@ -159,7 +165,35 @@ func scanDir(root, rel, webPrefix string) ([]*Album, error) {
 // readOrder reads the .order file in dir, returning the listed names in order.
 // Missing file or read error yields nil.
 func readOrder(dir string) []string {
-	data, err := os.ReadFile(filepath.Join(dir, OrderFileName))
+	return readNameList(filepath.Join(dir, OrderFileName))
+}
+
+// WriteOrder persists the manual child order for dir. Pass nil or an empty
+// slice to remove the order file.
+func WriteOrder(dir string, names []string) error {
+	return writeNameList(filepath.Join(dir, OrderFileName), names)
+}
+
+// ReadHidden returns the set of hidden photo names in dir.
+func ReadHidden(dir string) map[string]bool {
+	names := readNameList(filepath.Join(dir, HiddenFileName))
+	out := make(map[string]bool, len(names))
+	for _, n := range names {
+		out[n] = true
+	}
+	return out
+}
+
+// WriteHidden persists the hidden photo list for dir. Pass nil or an empty
+// slice to remove the file.
+func WriteHidden(dir string, names []string) error {
+	return writeNameList(filepath.Join(dir, HiddenFileName), names)
+}
+
+// readNameList reads a newline-separated name list file, returning the
+// trimmed, non-empty, non-comment lines. Missing files yield nil.
+func readNameList(path string) []string {
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil
 	}
@@ -174,18 +208,17 @@ func readOrder(dir string) []string {
 	return out
 }
 
-// WriteOrder persists the manual child order for dir. Pass nil or an empty
-// slice to remove the order file.
-func WriteOrder(dir string, names []string) error {
-	p := filepath.Join(dir, OrderFileName)
+// writeNameList writes a newline-separated name list. An empty slice removes
+// the file instead of leaving an empty one behind.
+func writeNameList(path string, names []string) error {
 	if len(names) == 0 {
-		if err := os.Remove(p); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return err
 		}
 		return nil
 	}
 	body := strings.Join(names, "\n") + "\n"
-	return os.WriteFile(p, []byte(body), 0644)
+	return os.WriteFile(path, []byte(body), 0644)
 }
 
 // sortAlbumsByOrder sorts albums so that names appearing in order come first
@@ -215,7 +248,7 @@ func sortAlbumsByOrder(albums []*Album, order []string) {
 
 // scanNode builds a single album node. When withPhotos is true the Photos
 // list is populated (album detail); otherwise only PhotoCount is filled so
-// the list view stays cheap.
+// the list view stays cheap. PhotoCount excludes hidden photos.
 func scanNode(root, rel, webPrefix string, withPhotos bool) (*Album, error) {
 	dir := filepath.Join(root, filepath.FromSlash(rel))
 	cover, err := findCover(dir)
@@ -223,6 +256,13 @@ func scanNode(root, rel, webPrefix string, withPhotos bool) (*Album, error) {
 		return nil, err
 	}
 	photoNames, _ := listImages(dir)
+	hidden := ReadHidden(dir)
+	visibleCount := 0
+	for _, n := range photoNames {
+		if !hidden[n] {
+			visibleCount++
+		}
+	}
 	desc, _ := os.ReadFile(filepath.Join(dir, "description.txt"))
 	children, _ := scanDir(root, rel, webPrefix)
 	name := rel
@@ -234,12 +274,12 @@ func scanNode(root, rel, webPrefix string, withPhotos bool) (*Album, error) {
 		Path:        rel,
 		Slug:        urlSlug(rel),
 		Description: strings.TrimSpace(string(desc)),
-		PhotoCount:  len(photoNames),
+		PhotoCount:  visibleCount,
 		Photos:      []Photo{},
 		Children:    children,
 	}
 	if withPhotos {
-		a.Photos = buildPhotos(root, rel, webPrefix, dir, cover)
+		a.Photos = buildPhotos(root, rel, webPrefix, dir, cover, false)
 	}
 	if cover != "" {
 		a.CoverURL = joinURL(webPrefix, rel, cover)
@@ -249,8 +289,19 @@ func scanNode(root, rel, webPrefix string, withPhotos bool) (*Album, error) {
 }
 
 // ScanAlbum returns a single album (with photos and nested children) located
-// at the slash-separated relative path rel from root.
+// at the slash-separated relative path rel from root. Hidden photos are
+// excluded from the Photos list.
 func ScanAlbum(root, rel, webPrefix string) (*Album, error) {
+	return scanAlbum(root, rel, webPrefix, false)
+}
+
+// ScanAlbumAdmin is ScanAlbum but includes hidden photos in the Photos list,
+// marking each with Photo.Hidden so the admin UI can render the state.
+func ScanAlbumAdmin(root, rel, webPrefix string) (*Album, error) {
+	return scanAlbum(root, rel, webPrefix, true)
+}
+
+func scanAlbum(root, rel, webPrefix string, includeHidden bool) (*Album, error) {
 	clean, err := CleanRelPath(rel)
 	if err != nil {
 		return nil, fmt.Errorf("album not found")
@@ -260,7 +311,13 @@ func ScanAlbum(root, rel, webPrefix string) (*Album, error) {
 	if err != nil || !info.IsDir() {
 		return nil, fmt.Errorf("album not found")
 	}
-	return scanNode(root, clean, webPrefix, true)
+	a, err := scanNode(root, clean, webPrefix, false)
+	if err != nil {
+		return nil, err
+	}
+	cover, _ := findCover(dir)
+	a.Photos = buildPhotos(root, clean, webPrefix, dir, cover, includeHidden)
+	return a, nil
 }
 
 // CleanRelPath validates a slash-separated relative path and returns its
@@ -277,10 +334,15 @@ func CleanRelPath(rel string) (string, error) {
 	return path.Clean(rel), nil
 }
 
-func buildPhotos(root, rel, webPrefix, dir, cover string) []Photo {
+func buildPhotos(root, rel, webPrefix, dir, cover string, includeHidden bool) []Photo {
 	names, _ := listImages(dir)
+	hidden := ReadHidden(dir)
 	photos := make([]Photo, 0, len(names))
 	for _, n := range names {
+		isHidden := hidden[n]
+		if isHidden && !includeHidden {
+			continue
+		}
 		finfo, _ := os.Stat(filepath.Join(dir, n))
 		var size int64
 		var mtime int64
@@ -296,6 +358,7 @@ func buildPhotos(root, rel, webPrefix, dir, cover string) []Photo {
 			Size:     size,
 			Modified: mtime,
 			IsCover:  n == cover,
+			Hidden:   isHidden,
 			Width:    w,
 			Height:   h,
 		})

@@ -10,6 +10,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/swys/picshare/internal/gallery"
@@ -44,7 +45,7 @@ func (h *AdminHandlers) ListAlbumManage(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "bad album path", 400)
 		return
 	}
-	full, err := gallery.ScanAlbum(h.PhotosDir, name, h.WebPrefix)
+	full, err := gallery.ScanAlbumAdmin(h.PhotosDir, name, h.WebPrefix)
 	if err != nil {
 		http.Error(w, err.Error(), 404)
 		return
@@ -291,6 +292,52 @@ func (h *AdminHandlers) Reorder(w http.ResponseWriter, r *http.Request) {
 		clean = append(clean, n)
 	}
 	if err := gallery.WriteOrder(dir, clean); err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	writeJSON(w, map[string]string{"status": "ok"})
+}
+
+// SetHidden marks a photo as hidden (or clears the mark). Hidden photos are
+// excluded from the public album view but remain visible in the admin UI
+// and may still be used as the album cover.
+func (h *AdminHandlers) SetHidden(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Album  string `json:"album"`
+		Photo  string `json:"photo"`
+		Hidden bool   `json:"hidden"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "bad json", 400)
+		return
+	}
+	if !validAlbumPath(req.Album) {
+		http.Error(w, "bad album", 400)
+		return
+	}
+	photo := filepath.Base(req.Photo)
+	if !gallery.IsImage(photo) {
+		http.Error(w, "bad photo", 400)
+		return
+	}
+	albumDir := filepath.Join(h.PhotosDir, filepath.FromSlash(req.Album))
+	src := filepath.Join(albumDir, photo)
+	if fi, err := os.Stat(src); err != nil || fi.IsDir() {
+		http.Error(w, "source not found", 404)
+		return
+	}
+	hidden := gallery.ReadHidden(albumDir)
+	if req.Hidden {
+		hidden[photo] = true
+	} else {
+		delete(hidden, photo)
+	}
+	names := make([]string, 0, len(hidden))
+	for n := range hidden {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	if err := gallery.WriteHidden(albumDir, names); err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}

@@ -241,6 +241,18 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   pointer-events: none;
 }
 
+.photo-tile .badge-hidden {
+  background: var(--muted);
+  top: auto;
+  bottom: 4px;
+  left: 4px;
+}
+
+.photo-tile.hidden-photo img {
+  opacity: 0.35;
+  filter: grayscale(60%);
+}
+
 .photo-tile .row-actions {
   position: absolute;
   bottom: 4px;

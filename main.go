@@ -111,6 +111,7 @@ func main() {
 	mux.Handle("POST /api/admin/rename", adminGuard(adm.Rename))
 	mux.Handle("POST /api/admin/delete", adminGuard(adm.Delete))
 	mux.Handle("POST /api/admin/setcover", adminGuard(adm.SetCover))
+	mux.Handle("POST /api/admin/sethidden", adminGuard(adm.SetHidden))
 	mux.Handle("POST /api/admin/reorder", adminGuard(adm.Reorder))
 
 	webHandler := webui.NewHandler(cfg.DefaultLang)
