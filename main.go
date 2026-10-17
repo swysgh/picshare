@@ -103,7 +103,10 @@ func main() {
 		mux.HandleFunc("GET "+cfg.WebPathPrefix+"/{path...}", pub.ServeImage)
 	}
 	adminGuard := func(next http.HandlerFunc) http.Handler {
-		return auth.BasicAuth(cfg.AdminUser, cfg.AdminPass, next)
+		// Basic Auth first, then the stateless CSRF origin check for
+		// non-GET requests (see auth.CSRFCheck for why it must never
+		// grow an origin allowlist).
+		return auth.CSRFCheck(auth.BasicAuth(cfg.AdminUser, cfg.AdminPass, next))
 	}
 	mux.Handle("GET /api/admin/manage", adminGuard(adm.ListManage))
 	mux.Handle("GET /api/admin/manage/{path...}", adminGuard(adm.ListAlbumManage))
