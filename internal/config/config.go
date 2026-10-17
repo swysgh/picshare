@@ -15,18 +15,18 @@ import (
 const DefaultMaxUploadMB = 512
 
 type Config struct {
-	Listen            string `json:"listen"`
-	PhotosDir         string `json:"photos_dir"`
-	ThumbsDir         string `json:"thumbs_dir"`
-	AdminUser         string `json:"admin_user"`
-	AdminPass         string `json:"admin_pass"`
-	SiteTitle         string `json:"site_title"`
-	DefaultLang       string `json:"default_lang"`
-	GridThumbSize     int    `json:"grid_thumb_size"`
-	LightboxSize      int    `json:"lightbox_size"`
-	EnableExifRotate  bool   `json:"enable_exif_rotation"`
-	WebPathPrefix     string `json:"web_path_prefix"`
-	MaxUploadMB       int    `json:"max_upload_mb"`
+	Listen           string `json:"listen"`
+	PhotosDir        string `json:"photos_dir"`
+	ThumbsDir        string `json:"thumbs_dir"`
+	AdminUser        string `json:"admin_user"`
+	AdminPass        string `json:"admin_pass"`
+	SiteTitle        string `json:"site_title"`
+	DefaultLang      string `json:"default_lang"`
+	GridThumbSize    int    `json:"grid_thumb_size"`
+	LightboxSize     int    `json:"lightbox_size"`
+	EnableExifRotate bool   `json:"enable_exif_rotation"`
+	WebPathPrefix    string `json:"web_path_prefix"`
+	MaxUploadMB      int    `json:"max_upload_mb"`
 }
 
 func Default() *Config {

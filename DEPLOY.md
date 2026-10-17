@@ -74,7 +74,7 @@ sudo chmod 600 /etc/picshare.json
 ### 2.4 systemd
 
 ```bash
-sudo cp contrib/picshare.service /etc/systemd/system/
+sudo cp picshare.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now picshare
 sudo systemctl status picshare
@@ -85,7 +85,7 @@ sudo systemctl status picshare
 ### 3.1 基础（HTTP）
 
 ```bash
-sudo cp contrib/nginx.conf.example /etc/nginx/sites-available/picshare.conf
+sudo cp nginx.conf.example /etc/nginx/sites-available/picshare.conf
 sudo ln -s /etc/nginx/sites-available/picshare.conf /etc/nginx/sites-enabled/
 sudo nginx -t && sudo systemctl reload nginx
 ```
@@ -163,7 +163,7 @@ echo "本产品线包括 5 款" > /var/lib/picshare/photos/主力产品/descript
 03.历史归档
 ```
 
-按自然顺序排序（`10.……` 排在 `2.……` 之前）。
+按自然顺序排序（数字感知，`10.……` 排在 `2.……` 之后、`02.……` 之前）。
 
 ### 5.5 清除缩略图缓存
 

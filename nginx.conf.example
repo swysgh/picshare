@@ -7,24 +7,31 @@
 server {
     listen 80;
     server_name gallery.example.com;
-    client_max_body_size 0;          # 关闭上传大小限制，由 Go 按需处理
+    # 上传走 Go 处理；此值须 >= Go 配置 max_upload_mb，否则大文件先被 Nginx 拒
+    client_max_body_size 512m;
     proxy_request_buffering off;     # 流式转发，不落 Nginx 盘
     proxy_http_version 1.1;
 
-    # 静态文件直出（关键优化：原图 0 拷贝发送）
+    # 拒绝所有点开头的隐藏文件/目录（.hidden、.order、.git 等）
+    location ~ /\. {
+        deny all;
+    }
+
+    # 静态文件直出（关键优化：原图 0 拷贝发送），只放行图片扩展名
     location /photos/ {
         alias /var/lib/picshare/photos/;
-        expires 7d;
-        add_header Cache-Control "public, max-age=604800, immutable";
-        access_log off;
-        try_files $uri =404;
+        location ~* \.(jpe?g|png|webp|gif|bmp|tiff?)$ {
+            expires 7d;
+            access_log off;
+            try_files $uri =404;
+        }
+        deny all;
     }
 
     # 缩略图缓存（可选：也可直接走 Go）
     location /thumbs/ {
         alias /var/lib/picshare/thumbs/;
         expires 30d;
-        add_header Cache-Control "public, max-age=2592000, immutable";
         access_log off;
         try_files $uri =404;
     }

@@ -2,7 +2,9 @@ package api
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
+	"os"
 	"path"
 	"path/filepath"
 	"strings"
@@ -29,7 +31,8 @@ func (h *PublicHandlers) scanOpts() gallery.Options {
 func (h *PublicHandlers) ListAlbums(w http.ResponseWriter, r *http.Request) {
 	albums, err := gallery.ScanOpts(h.PhotosDir, h.scanOpts())
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		log.Printf("list albums: %v", err)
+		http.Error(w, "internal error", 500)
 		return
 	}
 	if albums == nil {
@@ -57,7 +60,9 @@ func (h *PublicHandlers) ServeImage(w http.ResponseWriter, r *http.Request) {
 	clean := filepath.Clean("/" + p)
 	abs := filepath.Join(h.PhotosDir, clean)
 	rel, err := filepath.Rel(h.PhotosDir, abs)
-	if err != nil || strings.HasPrefix(rel, "..") || strings.HasPrefix(rel, string(filepath.Separator)+"..") {
+	// Exact match only: rel == ".." or a path *starting with* "../" escapes
+	// the root. A plain prefix check would also reject "..x.jpg".
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		http.Error(w, "forbidden", 403)
 		return
 	}
@@ -67,6 +72,13 @@ func (h *PublicHandlers) ServeImage(w http.ResponseWriter, r *http.Request) {
 	}
 	if !gallery.IsImage(path.Base(abs)) {
 		http.Error(w, "forbidden", 403)
+		return
+	}
+	// A directory named like an image ("x.jpg/") would otherwise serve a
+	// listing via http.ServeFile.
+	fi, err := os.Stat(abs)
+	if err != nil || !fi.Mode().IsRegular() {
+		http.Error(w, "not found", 404)
 		return
 	}
 	w.Header().Set("Cache-Control", "public, max-age=604800")

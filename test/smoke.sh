@@ -8,12 +8,15 @@ cd "$ROOT"
 
 PORT=${PORT:-18080}
 BASE="http://127.0.0.1:${PORT}"
-CONFIG="$(mktemp -d)/config.json"
+CONFIG_DIR="$(mktemp -d)"
+CONFIG="${CONFIG_DIR}/config.json"
 TESTDIR="$(mktemp -d)"
-SAMPLE_PNG="$(mktemp -u --suffix=.png)"
+# mktemp 不带 -u：先真实创建再覆盖写，避免 -u 的名字预测竞态
+SAMPLE_PNG="$(mktemp --suffix=.png)"
 
-# 先杀掉可能残留的 picshare 进程占用相同端口
-pkill -f "picshare.*--config ${CONFIG}" 2>/dev/null || true
+# 先杀掉可能残留的 picshare 冒烟进程（上次异常退出留下的，其 --config
+# 指向上次的 mktemp 目录，在 /tmp 下；不匹配生产配置路径）
+pkill -f "picshare .*--config /tmp/tmp\." 2>/dev/null || true
 sleep 0.3
 
 cleanup() {
@@ -21,7 +24,8 @@ cleanup() {
     kill "$PID" 2>/dev/null || true
     wait "$PID" 2>/dev/null || true
   fi
-  rm -rf "$CONFIG" "$TESTDIR"
+  rm -rf "$CONFIG_DIR" "$TESTDIR"
+  rm -f "$SAMPLE_PNG" /tmp/notimage.txt
 }
 trap cleanup EXIT
 
@@ -135,12 +139,21 @@ pass "path traversal rejected"
 
 # 14. 上传非图片
 echo ">>> testing non-image upload"
+mkdir -p "$TESTDIR/photos/test"
 echo "not an image" > /tmp/notimage.txt
 noncode=$(curl -s -o /dev/null -w "%{http_code}" -u testadmin:testpass \
   -X POST "$BASE/api/admin/upload?album=test" \
   -F "files=@/tmp/notimage.txt")
 [[ "$noncode" == "400" ]] || fail "expected 400, got $noncode"
 pass "non-image rejected"
+
+# 14b. 上传到不存在的相册 → 404（不自动建目录）
+misscode=$(curl -s -o /dev/null -w "%{http_code}" -u testadmin:testpass \
+  -X POST "$BASE/api/admin/upload?album=no-such-album" \
+  -F "files=@${SAMPLE_PNG}")
+[[ "$misscode" == "404" ]] || fail "expected 404 for missing album, got $misscode"
+[[ ! -d "$TESTDIR/photos/no-such-album" ]] || fail "missing album should not be created"
+pass "upload to missing album rejected"
 
 # 15. 设置封面
 echo ">>> testing setcover"

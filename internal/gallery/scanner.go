@@ -8,6 +8,7 @@ import (
 	_ "image/gif"
 	_ "image/jpeg"
 	_ "image/png"
+	"io"
 	"io/fs"
 	"log"
 	"os"
@@ -83,17 +84,22 @@ func IsImage(name string) bool {
 	return imageExts[strings.ToLower(filepath.Ext(name))]
 }
 
-func StripPrefix(name string) string {
-	return strings.TrimLeft(name, "0")
-}
-
 func naturalLess(a, b string) int {
 	ai, bi := 0, 0
 	for ai < len(a) && bi < len(b) {
-		ad, aOk := readDigit(a, &ai)
-		bd, bOk := readDigit(b, &bi)
+		ad, aOk, as, _ := readDigit(a, &ai)
+		bd, bOk, bs, _ := readDigit(b, &bi)
 		if aOk && bOk {
-			if ad != bd {
+			if as != "" || bs != "" {
+				// At least one run overflows int64: compare as
+				// strings (longer digit run = larger number).
+				if len(as) != len(bs) {
+					return cmp.Compare(len(as), len(bs))
+				}
+				if c := strings.Compare(as, bs); c != 0 {
+					return c
+				}
+			} else if ad != bd {
 				return cmp.Compare(ad, bd)
 			}
 			if ai == len(a) && bi == len(b) {
@@ -122,16 +128,26 @@ func naturalLess(a, b string) int {
 	return cmp.Compare(len(a), len(b))
 }
 
-func readDigit(s string, i *int) (int64, bool) {
+// readDigit parses the digit run starting at *i. Runs longer than 18 digits
+// overflow int64, so they are compared as strings instead (length first,
+// then lexicographic — equivalent ordering, no overflow).
+func readDigit(s string, i *int) (int64, bool, string, string) {
 	if *i >= len(s) || s[*i] < '0' || s[*i] > '9' {
-		return 0, false
+		return 0, false, "", ""
 	}
-	var n int64
+	start := *i
 	for *i < len(s) && s[*i] >= '0' && s[*i] <= '9' {
-		n = n*10 + int64(s[*i]-'0')
 		*i++
 	}
-	return n, true
+	run := s[start:*i]
+	if len(run) > 18 {
+		return 0, true, run, run // caller compares via strings
+	}
+	var n int64
+	for _, c := range run {
+		n = n*10 + int64(c-'0')
+	}
+	return n, true, "", ""
 }
 
 // scanCacheTTL is how long a Scan result is served from the in-memory
@@ -274,10 +290,23 @@ func WriteHidden(dir string, names []string) error {
 	return err
 }
 
+// metaReadLimit caps reads of description.txt/.hidden/.order so a huge
+// (possibly malicious) metadata file can't balloon memory.
+const metaReadLimit = 1 << 20
+
+func readLimited(path string) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	return io.ReadAll(io.LimitReader(f, metaReadLimit))
+}
+
 // readNameList reads a newline-separated name list file, returning the
 // trimmed, non-empty, non-comment lines. Missing files yield nil.
 func readNameList(path string) []string {
-	data, err := os.ReadFile(path)
+	data, err := readLimited(path)
 	if err != nil {
 		return nil
 	}
@@ -375,7 +404,7 @@ func scanNode(root, rel string, opts Options, withPhotos bool) (*Album, error) {
 			visibleCount++
 		}
 	}
-	desc, _ := os.ReadFile(filepath.Join(dir, "description.txt"))
+	desc, _ := readLimited(filepath.Join(dir, "description.txt"))
 	children, err := scanDir(root, rel, opts)
 	if err != nil {
 		log.Printf("scan %s children: %v", rel, err)
@@ -466,6 +495,10 @@ func scanAlbum(root, rel string, opts Options, includeHidden bool) (*Album, erro
 	}
 	cover, _ := findCover(dir)
 	a.Photos = buildPhotos(root, clean, opts, dir, cover, includeHidden)
+	// PhotoCount from scanNode only counts non-hidden files in this
+	// directory; the album view (admin) just built the full list, so use
+	// its length — otherwise a folder card can claim 0 while photos exist.
+	a.PhotoCount = len(a.Photos)
 	return a, nil
 }
 
@@ -506,9 +539,9 @@ func buildPhotos(root, rel string, opts Options, dir, cover string, includeHidde
 		w, h := readImageSize(filepath.Join(dir, n))
 		imgURL := joinURL(webPrefix, rel, n)
 		photos = append(photos, Photo{
-			Name:     n,
-			URL:      imgURL,
-			ThumbURL: "/thumb?p=" + urlPathEscape(imgURL) + "&w=" + strconv.Itoa(gridSize(opts)) + cacheBust(mtimeNano(finfo)),
+			Name:        n,
+			URL:         imgURL,
+			ThumbURL:    "/thumb?p=" + urlPathEscape(imgURL) + "&w=" + strconv.Itoa(gridSize(opts)) + cacheBust(mtimeNano(finfo)),
 			LightboxURL: "/thumb?p=" + urlPathEscape(imgURL) + "&w=" + strconv.Itoa(lightboxSize(opts)) + cacheBust(mtimeNano(finfo)),
 			Size:        size,
 			Modified:    mtime,
@@ -598,12 +631,4 @@ func readImageSize(path string) (int, int) {
 		return 0, 0
 	}
 	return cfg.Width, cfg.Height
-}
-
-func ModTime(path string) (time.Time, error) {
-	fi, err := os.Stat(path)
-	if err != nil {
-		return time.Time{}, err
-	}
-	return fi.ModTime(), nil
 }

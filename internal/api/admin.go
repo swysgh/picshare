@@ -34,7 +34,8 @@ type AdminHandlers struct {
 func (h *AdminHandlers) ListManage(w http.ResponseWriter, r *http.Request) {
 	albums, err := gallery.ScanOpts(h.PhotosDir, h.scanOpts())
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		log.Printf("admin list: %v", err)
+		http.Error(w, "internal error", 500)
 		return
 	}
 	if albums == nil {
@@ -54,7 +55,7 @@ func (h *AdminHandlers) ListAlbumManage(w http.ResponseWriter, r *http.Request) 
 	}
 	full, err := gallery.ScanAlbumAdminOpts(h.PhotosDir, name, h.scanOpts())
 	if err != nil {
-		http.Error(w, err.Error(), 404)
+		http.Error(w, "album not found", 404)
 		return
 	}
 	writeJSON(w, map[string]any{

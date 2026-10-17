@@ -1,4 +1,4 @@
-.PHONY: build run test clean install init
+.PHONY: build run test clean clean-data install init
 
 BINARY := picshare
 # Inject the most recent git tag (without the leading "v") as the build
@@ -17,6 +17,10 @@ test:
 
 clean:
 	rm -f $(BINARY)
+
+# Wipes user data (photos + generated thumbnails). Separate from clean so a
+# plain `make clean` never destroys the gallery.
+clean-data:
 	rm -rf photos/* thumbs/*
 
 init:

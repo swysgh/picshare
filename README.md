@@ -7,7 +7,7 @@
 - 单二进制，复制即用（`CGO_ENABLED=0` 静态编译，~7MB）
 - 无数据库、无 session
 - 文件系统即数据：每个子目录 = 一个相册，支持多级嵌套文件夹分类
-- 自动识别封面（`cover.{jpg,png,webp}` > `folder.png` > 首张图）
+- 自动识别封面（`cover.{jpg,jpeg,png,webp}` / `folder.{jpg,jpeg,png,webp}` 共 8 个合法封面名 > 首张图）
 - 缩略图懒生成 + 磁盘缓存（EXIF 自动旋转；源文件更新自动失效）
 - PhotoSwipe 灯箱（触摸/键盘/全屏）
 - 中/韩/英 三语界面
@@ -124,6 +124,7 @@ picshare                         # 二进制
   "default_lang": "zh",             // 初始语言 zh / ko / en
   "grid_thumb_size": 480,           // 网格缩略图最大边
   "lightbox_size": 1600,            // 灯箱图最大边
+  "max_upload_mb": 512,             // 上传单文件大小上限（MB），0 = 不限制
   "enable_exif_rotation": true,     // 按 EXIF 自动旋转
   "web_path_prefix": "/photos"      // 原图 URL 前缀（与 Nginx 配置一致）
 }
@@ -146,7 +147,8 @@ make build    # 编译（版本号自动从最近的 git tag 注入）
 make test     # 跑测试
 make run      # 编译并运行（用 config.json）
 make init     # 生成默认 config.json
-make clean    # 清理二进制 + photos/thumbs
+make clean    # 清理二进制等构建产物
+make clean-data  # 清空 photos/ 与 thumbs/（危险：删除图库数据）
 ```
 
 ## 发布

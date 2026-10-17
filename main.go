@@ -23,7 +23,9 @@ import (
 )
 
 // version is the build version. It is injected at build time via
-//   -ldflags "-X main.version=<version>"
+//
+//	-ldflags "-X main.version=<version>"
+//
 // and defaults to "dev" for unversioned local builds. No version number is
 // hard-coded here; releases always derive it from the git tag.
 var version = "dev"
