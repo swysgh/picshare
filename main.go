@@ -84,9 +84,10 @@ func main() {
 		WebPrefix: cfg.WebPathPrefix,
 	}
 	adm := &api.AdminHandlers{
-		PhotosDir: cfg.PhotosDir,
-		ThumbsDir: cfg.ThumbsDir,
-		WebPrefix: cfg.WebPathPrefix,
+		PhotosDir:     cfg.PhotosDir,
+		ThumbsDir:     cfg.ThumbsDir,
+		WebPrefix:     cfg.WebPathPrefix,
+		UploadLimitMB: cfg.MaxUploadMB,
 	}
 
 	mux := http.NewServeMux()

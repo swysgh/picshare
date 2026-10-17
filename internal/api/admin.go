@@ -13,15 +13,20 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/disintegration/imaging"
 	"github.com/swys/picshare/internal/gallery"
 )
 
 type AdminHandlers struct {
-	PhotosDir string
-	ThumbsDir string
-	WebPrefix string
+	PhotosDir     string
+	ThumbsDir     string
+	WebPrefix     string
+	UploadLimitMB int
+	// mu serializes read-modify-write cycles on the per-album metadata
+	// files (.hidden/.order) across admin mutations.
+	mu sync.Mutex
 }
 
 func (h *AdminHandlers) ListManage(w http.ResponseWriter, r *http.Request) {

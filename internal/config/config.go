@@ -8,6 +8,10 @@ import (
 	"path/filepath"
 )
 
+// DefaultMaxUploadMB is the per-request upload body cap (in MB) when
+// max_upload_mb is unset. 0 explicitly disables the limit.
+const DefaultMaxUploadMB = 512
+
 type Config struct {
 	Listen            string `json:"listen"`
 	PhotosDir         string `json:"photos_dir"`
@@ -20,6 +24,7 @@ type Config struct {
 	LightboxSize      int    `json:"lightbox_size"`
 	EnableExifRotate  bool   `json:"enable_exif_rotation"`
 	WebPathPrefix     string `json:"web_path_prefix"`
+	MaxUploadMB       int    `json:"max_upload_mb"`
 }
 
 func Default() *Config {
@@ -35,6 +40,7 @@ func Default() *Config {
 		LightboxSize:     1600,
 		EnableExifRotate: true,
 		WebPathPrefix:    "/photos",
+		MaxUploadMB:      DefaultMaxUploadMB,
 	}
 }
 
@@ -81,6 +87,9 @@ func validate(cfg *Config) error {
 	}
 	if cfg.WebPathPrefix == "" {
 		cfg.WebPathPrefix = "/photos"
+	}
+	if cfg.MaxUploadMB < 0 {
+		return fmt.Errorf("max_upload_mb 不能为负数（当前 %d；0 = 不限制）", cfg.MaxUploadMB)
 	}
 	return nil
 }

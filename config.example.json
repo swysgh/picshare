@@ -9,5 +9,6 @@
   "grid_thumb_size": 480,
   "lightbox_size": 1600,
   "enable_exif_rotation": true,
-  "web_path_prefix": "/photos"
+  "web_path_prefix": "/photos",
+  "max_upload_mb": 512
 }
