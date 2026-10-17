@@ -101,22 +101,71 @@ func (h *AdminHandlers) Delete(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad album", 400)
 		return
 	}
-	deleted := 0
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	type delResult struct {
+		Path   string `json:"path"`
+		Status string `json:"status"`
+		Error  string `json:"error,omitempty"`
+	}
+	var results []delResult
+	deleted, failed := 0, 0
 	for _, p := range req.Paths {
-		if err := h.deleteSafe(album, p); err != nil {
+		if err := h.deleteSafeLocked(album, p); err != nil {
 			log.Printf("delete %s/%s: %v", album, p, err)
+			results = append(results, delResult{Path: p, Status: "failed", Error: "delete failed"})
+			failed++
 			continue
 		}
+		h.removeHiddenEntry(album, p)
 		deleted++
+		results = append(results, delResult{Path: p, Status: "ok"})
 		h.invalidateThumb(album, p)
 	}
-	writeJSON(w, map[string]any{"status": "ok", "deleted": deleted})
+	body := map[string]any{"status": "ok", "deleted": deleted, "results": results}
+	if failed > 0 {
+		body["status"] = "partial"
+		body["failed"] = failed
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(500)
+		enc := json.NewEncoder(w)
+		enc.SetEscapeHTML(false)
+		_ = enc.Encode(body)
+		return
+	}
+	writeJSON(w, body)
+}
+
+// removeHiddenEntry drops name from the album's .hidden list (if present),
+// so deleting a photo does not leave a dangling hidden entry behind.
+func (h *AdminHandlers) removeHiddenEntry(album, name string) {
+	if name == "." {
+		return
+	}
+	albumDir := filepath.Join(h.PhotosDir, filepath.FromSlash(album))
+	hidden := gallery.ReadHidden(albumDir)
+	if hidden == nil {
+		return
+	}
+	base := filepath.Base(name)
+	if !hidden[base] {
+		return
+	}
+	delete(hidden, base)
+	names := make([]string, 0, len(hidden))
+	for n := range hidden {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	if err := gallery.WriteHidden(albumDir, names); err != nil {
+		log.Printf("remove hidden entry %s/%s: %v", album, base, err)
+	}
 }
 
 // deleteSafe removes an item inside album (a slash-separated path, "" = root).
 // name may be "." to delete the album directory itself, a file name, or a
-// nested subdirectory name.
-func (h *AdminHandlers) deleteSafe(album, name string) error {
+// nested subdirectory name. Callers must hold h.mu.
+func (h *AdminHandlers) deleteSafeLocked(album, name string) error {
 	album = strings.TrimSpace(album)
 	if name == "." {
 		if album == "" {
@@ -175,6 +224,13 @@ func (h *AdminHandlers) Rename(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad filename", 400)
 		return
 	}
+	// The destination of a photo rename must stay a servable image with a
+	// normal name: renaming to "a.txt" (or any dot-file) would produce a
+	// file the admin UI can neither delete nor rename back.
+	if strings.HasPrefix(to, ".") {
+		http.Error(w, "bad target name", 400)
+		return
+	}
 	base := h.PhotosDir
 	if req.Album != "" {
 		base = filepath.Join(h.PhotosDir, filepath.FromSlash(req.Album))
@@ -190,20 +246,53 @@ func (h *AdminHandlers) Rename(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "source not found", 404)
 		return
 	}
-	if !fi.IsDir() && !gallery.IsImage(from) && from != "description.txt" {
-		http.Error(w, "not an image or description.txt", 400)
+	if !fi.IsDir() {
+		if !gallery.IsImage(from) || !gallery.IsImage(to) {
+			http.Error(w, "not an image", 400)
+			return
+		}
+		if from == "description.txt" {
+			http.Error(w, "not an image", 400)
+			return
+		}
+	} else if strings.HasPrefix(to, ".") {
+		http.Error(w, "bad target name", 400)
 		return
 	}
 	if _, err := os.Stat(dst); err == nil {
 		http.Error(w, "destination exists", 409)
 		return
 	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	if err := os.Rename(src, dst); err != nil {
-		http.Error(w, err.Error(), 500)
+		log.Printf("rename %s -> %s: %v", src, dst, err)
+		http.Error(w, "rename failed", 500)
 		return
 	}
+	h.renameHiddenEntry(req.Album, base, from, to)
 	h.invalidateThumb(req.Album, from)
 	writeJSON(w, map[string]string{"status": "ok"})
+}
+
+// renameHiddenEntry rewrites a .hidden entry from the old file name to the
+// new one, so a hidden photo stays hidden across a rename. Callers must
+// hold h.mu.
+func (h *AdminHandlers) renameHiddenEntry(album, albumDir, from, to string) {
+	hidden := gallery.ReadHidden(albumDir)
+	if hidden == nil || !hidden[from] {
+		return
+	}
+	delete(hidden, from)
+	hidden[to] = true
+	names := make([]string, 0, len(hidden))
+	for n := range hidden {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	if err := gallery.WriteHidden(albumDir, names); err != nil {
+		log.Printf("rename hidden entry %s: %s -> %s: %v", album, from, to, err)
+	}
 }
 
 func (h *AdminHandlers) SetCover(w http.ResponseWriter, r *http.Request) {
@@ -289,6 +378,8 @@ func (h *AdminHandlers) Reorder(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "album not found", 404)
 		return
 	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	clean := make([]string, 0, len(req.Names))
 	seen := make(map[string]bool, len(req.Names))
 	for _, n := range req.Names {
@@ -310,7 +401,8 @@ func (h *AdminHandlers) Reorder(w http.ResponseWriter, r *http.Request) {
 		clean = append(clean, n)
 	}
 	if err := gallery.WriteOrder(dir, clean); err != nil {
-		http.Error(w, err.Error(), 500)
+		log.Printf("reorder %s: %v", album, err)
+		http.Error(w, "save order failed", 500)
 		return
 	}
 	writeJSON(w, map[string]string{"status": "ok"})
@@ -344,6 +436,8 @@ func (h *AdminHandlers) SetHidden(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "source not found", 404)
 		return
 	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	hidden := gallery.ReadHidden(albumDir)
 	if req.Hidden {
 		hidden[photo] = true
@@ -356,7 +450,8 @@ func (h *AdminHandlers) SetHidden(w http.ResponseWriter, r *http.Request) {
 	}
 	sort.Strings(names)
 	if err := gallery.WriteHidden(albumDir, names); err != nil {
-		http.Error(w, err.Error(), 500)
+		log.Printf("sethidden %s/%s: %v", req.Album, photo, err)
+		http.Error(w, "save hidden state failed", 500)
 		return
 	}
 	writeJSON(w, map[string]string{"status": "ok"})

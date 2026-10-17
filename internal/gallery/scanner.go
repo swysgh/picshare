@@ -212,8 +212,9 @@ func readNameList(path string) []string {
 	return out
 }
 
-// writeNameList writes a newline-separated name list. An empty slice removes
-// the file instead of leaving an empty one behind.
+// writeNameList writes a newline-separated name list atomically (temp file
+// + rename), so a crash mid-write cannot leave a truncated .order/.hidden.
+// An empty slice removes the file instead of leaving an empty one behind.
 func writeNameList(path string, names []string) error {
 	if len(names) == 0 {
 		if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
@@ -222,7 +223,30 @@ func writeNameList(path string, names []string) error {
 		return nil
 	}
 	body := strings.Join(names, "\n") + "\n"
-	return os.WriteFile(path, []byte(body), 0644)
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".namelist-*")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	if _, err := tmp.WriteString(body); err != nil {
+		tmp.Close()
+		os.Remove(tmpName)
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		os.Remove(tmpName)
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmpName)
+		return err
+	}
+	if err := os.Chmod(tmpName, 0644); err != nil {
+		os.Remove(tmpName)
+		return err
+	}
+	return os.Rename(tmpName, path)
 }
 
 // sortAlbumsByOrder sorts albums so that names appearing in order come first
