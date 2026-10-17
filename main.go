@@ -56,13 +56,11 @@ func main() {
 
 	cfg, err := config.Load(configPath)
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			if err := initConfig(configPath); err != nil {
-				logger.Fatalf("auto-init failed: %v", err)
-			}
-			logger.Printf("config not found, wrote default to %s — please edit and restart", configPath)
-			return
-		}
+		// No auto-init here: Load only returns wrapped errors, so the
+		// old errors.Is(os.ErrNotExist) branch was dead code — and
+		// silently generating a config with a weak default password
+		// and starting anyway would be worse than failing loudly.
+		// Use --init to write a starter config explicitly.
 		logger.Fatalf("load config: %v", err)
 	}
 	if err := cfg.EnsureDirs(); err != nil {
@@ -100,7 +98,6 @@ func main() {
 	if cfg.WebPathPrefix != "" && cfg.WebPathPrefix != "/i" {
 		mux.HandleFunc("GET "+cfg.WebPathPrefix+"/{path...}", pub.ServeImage)
 	}
-
 	adminGuard := func(next http.HandlerFunc) http.Handler {
 		return auth.BasicAuth(cfg.AdminUser, cfg.AdminPass, next)
 	}
@@ -115,7 +112,7 @@ func main() {
 	mux.Handle("POST /api/admin/reorder", adminGuard(adm.Reorder))
 
 	webHandler := webui.NewHandler(cfg.DefaultLang)
-	mux.Handle("/", spaHandler(webHandler))
+	mux.Handle("/", spaHandler(webHandler, cfg.WebPathPrefix))
 
 	srv := &http.Server{
 		Addr:              cfg.Listen,
@@ -176,13 +173,16 @@ func debugStack() string {
 	return string(buf[:n])
 }
 
-func spaHandler(h http.Handler) http.Handler {
+// spaHandler serves the embedded frontend. webPrefix (web_path_prefix) is
+// the URL space owned by image serving / nginx direct-offload; requests
+// under it must not fall through to the SPA.
+func spaHandler(h http.Handler, webPrefix string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/api/") || r.URL.Path == "/thumb" {
 			http.NotFound(w, r)
 			return
 		}
-		if strings.HasPrefix(r.URL.Path, "/photos/") {
+		if webPrefix != "" && webPrefix != "/" && strings.HasPrefix(r.URL.Path, webPrefix+"/") {
 			http.NotFound(w, r)
 			return
 		}
