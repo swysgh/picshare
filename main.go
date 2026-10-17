@@ -120,6 +120,12 @@ func main() {
 		Addr:              cfg.Listen,
 		Handler:           withHeaders(mux),
 		ReadHeaderTimeout: 30 * time.Second,
+		// IdleTimeout recycles keep-alive connections held open by
+		// browsers/proxies; WriteTimeout is generous (10m) because
+		// thumbnail generation of a huge source can legitimately take a
+		// while on the first request.
+		IdleTimeout:  120 * time.Second,
+		WriteTimeout: 10 * time.Minute,
 	}
 
 	go func() {

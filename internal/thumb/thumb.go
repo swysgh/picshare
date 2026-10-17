@@ -7,14 +7,19 @@ import (
 	"image/jpeg"
 	"log"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/disintegration/imaging"
 )
+
+// maxPixels bounds the decoded source dimensions (W*H). A public endpoint
+// must never allocate a decoder bomb's worth of pixels, so anything larger
+// is rejected before full decode.
+const maxPixels = 40_000_000
 
 type Handler struct {
 	PhotosDir    string
@@ -23,6 +28,12 @@ type Handler struct {
 	GridSize     int
 	LightboxSize int
 	EnableExif   bool
+
+	// genSem caps concurrent thumbnail generations (buffered channel,
+	// capacity 2) so a burst of cache misses cannot decode many huge
+	// images at once. Lazily initialized via semInit.
+	genSem  chan struct{}
+	semInit sync.Once
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -35,6 +46,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing p", 400)
 		return
 	}
+	// r.URL.Query().Get already returns the decoded value; unescaping
+	// again would corrupt names containing '%' or '+'.
 	src, err := h.resolveSource(p)
 	if err != nil {
 		http.Error(w, "bad path", 400)
@@ -85,11 +98,7 @@ func (h *Handler) cacheFresh(cached, src string) bool {
 }
 
 func (h *Handler) resolveSource(rawPath string) (string, error) {
-	decoded, err := url.QueryUnescape(rawPath)
-	if err != nil {
-		return "", err
-	}
-	decoded = strings.TrimPrefix(decoded, h.WebPrefix)
+	decoded := strings.TrimPrefix(rawPath, h.WebPrefix)
 	decoded = strings.TrimPrefix(decoded, "/")
 	clean := filepath.Clean("/" + decoded)
 	abs := filepath.Join(h.PhotosDir, clean)
@@ -114,7 +123,18 @@ func (h *Handler) cachePath(src string, size int) string {
 	return filepath.Join(h.ThumbsDir, rel+fmt.Sprintf(".%d.jpg", size))
 }
 
+// generate decodes src (bounded by maxPixels), resizes it, and writes the
+// thumbnail atomically: a temp file is synced and renamed into place, so two
+// concurrent misses that race on the same cache entry can never leave a
+// half-written permanent cache file behind.
 func (h *Handler) generate(src, cached string, size int) error {
+	if err := h.checkPixels(src); err != nil {
+		return err
+	}
+
+	h.acquireSem()
+	defer h.releaseSem()
+
 	img, err := h.open(src)
 	if err != nil {
 		return err
@@ -123,13 +143,65 @@ func (h *Handler) generate(src, cached string, size int) error {
 	if err := os.MkdirAll(filepath.Dir(cached), 0755); err != nil {
 		return err
 	}
-	out, err := os.Create(cached)
+	tmp, err := os.CreateTemp(filepath.Dir(cached), ".tmp-*")
 	if err != nil {
 		return err
 	}
-	defer out.Close()
-	return jpeg.Encode(out, img, &jpeg.Options{Quality: 82})
+	tmpName := tmp.Name()
+	if err := jpeg.Encode(tmp, img, &jpeg.Options{Quality: 82}); err != nil {
+		tmp.Close()
+		os.Remove(tmpName)
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		os.Remove(tmpName)
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmpName)
+		return err
+	}
+	if err := os.Rename(tmpName, cached); err != nil {
+		os.Remove(tmpName)
+		return err
+	}
+	return nil
 }
+
+// checkPixels pre-checks the source dimensions with image.DecodeConfig and
+// rejects images whose pixel count exceeds maxPixels, before any full decode
+// allocates memory.
+func (h *Handler) checkPixels(src string) error {
+	f, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	cfg, _, err := image.DecodeConfig(f)
+	if err != nil {
+		return err
+	}
+	if cfg.Width <= 0 || cfg.Height <= 0 {
+		return nil
+	}
+	if int64(cfg.Width)*int64(cfg.Height) > maxPixels {
+		return fmt.Errorf("image too large: %dx%d exceeds %d pixels", cfg.Width, cfg.Height, maxPixels)
+	}
+	return nil
+}
+
+// sem lazily initializes and returns the generation semaphore (capacity 2).
+func (h *Handler) sem() chan struct{} {
+	h.semInit.Do(func() {
+		h.genSem = make(chan struct{}, 2)
+	})
+	return h.genSem
+}
+
+func (h *Handler) acquireSem() { h.sem() <- struct{}{} }
+
+func (h *Handler) releaseSem() { <-h.sem() }
 
 func (h *Handler) open(src string) (image.Image, error) {
 	if h.EnableExif {
@@ -142,17 +214,4 @@ func (h *Handler) open(src string) (image.Image, error) {
 	defer f.Close()
 	img, _, err := image.Decode(f)
 	return img, err
-}
-
-func (h *Handler) Regenerate(src string) error {
-	for _, size := range []int{h.GridSize, h.LightboxSize} {
-		cached := h.cachePath(src, size)
-		if err := os.Remove(cached); err != nil && !os.IsNotExist(err) {
-			return err
-		}
-		if err := h.generate(src, cached, size); err != nil {
-			return err
-		}
-	}
-	return nil
 }
