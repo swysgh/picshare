@@ -241,7 +241,7 @@
       }
       if (photos.length) wirePhotoClicks(path);
     }).catch(e => {
-      grid.innerHTML = `<div class="empty">${t('error')}: ${e.message}</div>`;
+      grid.innerHTML = `<div class="empty">${t('error')}: ${escapeHtml(e.message)}</div>`;
     });
   }
 

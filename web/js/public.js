@@ -89,8 +89,8 @@
     const grid = document.getElementById('photo-grid');
     if (!photos.length) return false;
     grid.innerHTML = photos.map(p => `
-      <a href="${p.url}" data-pswp-width="${p.width || 1600}" data-pswp-height="${p.height || 1067}" target="_blank">
-        <img src="${p.thumb_url}" alt="${escapeHtml(p.name)}" loading="lazy">
+      <a href="${escapeHtml(p.url)}" data-pswp-src="${escapeHtml(p.lightbox_url || p.url)}" data-pswp-width="${p.width || 1600}" data-pswp-height="${p.height || 1067}" target="_blank" rel="noopener">
+        <img src="${escapeHtml(p.thumb_url)}" alt="${escapeHtml(p.name)}" loading="lazy">
       </a>
     `).join('');
     initPhotoSwipe();

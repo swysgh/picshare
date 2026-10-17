@@ -151,6 +151,14 @@ func withHeaders(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Referrer-Policy", "no-referrer")
+		w.Header().Set("X-Frame-Options", "DENY")
+		// CSP: same-origin only, with inline styles allowed (current CSS
+		// relies on a few inline style attributes) and data: images for
+		// placeholders. PhotoSwipe loads its UI from same-origin vendor
+		// files and displays same-origin /thumb + /photos images, so it
+		// is unaffected.
+		w.Header().Set("Content-Security-Policy",
+			"default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'")
 		defer func() {
 			if rec := recover(); rec != nil {
 				log.Printf("panic recovered: %v\n%s", rec, debugStack())

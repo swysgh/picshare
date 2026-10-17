@@ -40,7 +40,13 @@ func NewHandler(defaultLang string) http.Handler {
 			ct = "application/octet-stream"
 		}
 		w.Header().Set("Content-Type", ct)
-		w.Header().Set("Cache-Control", "public, max-age=3600")
+		if strings.HasSuffix(p, "admin.html") {
+			// The admin shell is dynamic (auth-protected); never let a
+			// shared browser cache serve it after logout.
+			w.Header().Set("Cache-Control", "no-store")
+		} else {
+			w.Header().Set("Cache-Control", "public, max-age=3600")
+		}
 		if ext == ".html" && defaultLang != "" {
 			data, err := io.ReadAll(f)
 			if err != nil {
