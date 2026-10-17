@@ -120,6 +120,41 @@ func TestScanAndCover(t *testing.T) {
 	}
 }
 
+func TestScanCacheInvalidation(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "a"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	albums, err := Scan(dir, "/photos")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(albums) != 1 || albums[0].Name != "a" {
+		t.Fatalf("initial scan = %v", albums)
+	}
+	// Mutations outside the scanner's control (e.g. mkdir in admin) are
+	// invisible within the TTL...
+	if err := os.MkdirAll(filepath.Join(dir, "b"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	cached, err := Scan(dir, "/photos")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cached) != 1 {
+		t.Fatalf("TTL window should serve cache, got %d albums", len(cached))
+	}
+	// ...and visible right after InvalidateScan.
+	InvalidateScan()
+	fresh, err := Scan(dir, "/photos")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(fresh) != 2 {
+		t.Fatalf("after invalidation want 2 albums, got %d", len(fresh))
+	}
+}
+
 func TestScanEmptyDir(t *testing.T) {
 	dir := t.TempDir()
 	albums, err := Scan(dir, "/photos")

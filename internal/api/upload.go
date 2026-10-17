@@ -85,6 +85,7 @@ func (h *AdminHandlers) Upload(w http.ResponseWriter, r *http.Request) {
 		}
 		uploaded++
 		results = append(results, fileResult{Name: name, Status: "ok"})
+		gallery.InvalidateScan()
 	}
 	if uploaded == 0 {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")

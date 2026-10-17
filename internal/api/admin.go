@@ -84,6 +84,7 @@ func (h *AdminHandlers) Mkdir(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 500)
 		return
 	}
+	gallery.InvalidateScan()
 	writeJSON(w, map[string]string{"status": "ok", "album": name})
 }
 
@@ -121,6 +122,7 @@ func (h *AdminHandlers) Delete(w http.ResponseWriter, r *http.Request) {
 		deleted++
 		results = append(results, delResult{Path: p, Status: "ok"})
 		h.invalidateThumb(album, p)
+		gallery.InvalidateScan()
 	}
 	body := map[string]any{"status": "ok", "deleted": deleted, "results": results}
 	if failed > 0 {
@@ -272,6 +274,7 @@ func (h *AdminHandlers) Rename(w http.ResponseWriter, r *http.Request) {
 	}
 	h.renameHiddenEntry(req.Album, base, from, to)
 	h.invalidateThumb(req.Album, from)
+	gallery.InvalidateScan()
 	writeJSON(w, map[string]string{"status": "ok"})
 }
 
@@ -329,6 +332,7 @@ func (h *AdminHandlers) SetCover(w http.ResponseWriter, r *http.Request) {
 	// Setting the cover to itself is a no-op; copying a file onto itself
 	// would truncate it to zero bytes.
 	if filepath.Clean(src) == filepath.Clean(cover) {
+		gallery.InvalidateScan()
 		writeJSON(w, map[string]string{"status": "ok", "cover": "cover" + ext})
 		return
 	}
@@ -346,6 +350,7 @@ func (h *AdminHandlers) SetCover(w http.ResponseWriter, r *http.Request) {
 	// thumbnail. The thumb handler also re-checks source mtime, but doing it
 	// here makes the intent explicit and avoids stale hits from proxies.
 	h.invalidateThumb(req.Album, "cover"+ext)
+	gallery.InvalidateScan()
 	writeJSON(w, map[string]string{"status": "ok", "cover": "cover" + ext})
 }
 
@@ -405,6 +410,7 @@ func (h *AdminHandlers) Reorder(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "save order failed", 500)
 		return
 	}
+	gallery.InvalidateScan()
 	writeJSON(w, map[string]string{"status": "ok"})
 }
 
@@ -454,6 +460,7 @@ func (h *AdminHandlers) SetHidden(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "save hidden state failed", 500)
 		return
 	}
+	gallery.InvalidateScan()
 	writeJSON(w, map[string]string{"status": "ok"})
 }
 

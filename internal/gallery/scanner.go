@@ -9,12 +9,14 @@ import (
 	_ "image/jpeg"
 	_ "image/png"
 	"io/fs"
+	"log"
 	"os"
 	"path"
 	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	_ "golang.org/x/image/bmp"
@@ -129,10 +131,52 @@ func readDigit(s string, i *int) (int64, bool) {
 	return n, true
 }
 
+// scanCacheTTL is how long a Scan result is served from the in-memory
+// cache before the tree is walked again.
+const scanCacheTTL = 2 * time.Second
+
+var (
+	scanCacheMu sync.Mutex
+	scanCache   = map[string]scanCacheEntry{}
+)
+
+type scanCacheEntry struct {
+	albums   []*Album
+	cachedAt time.Time
+}
+
 // Scan returns the top-level albums. Each album may contain nested Children,
 // so subdirectories are browsable as multi-level folder categories.
+// Results are cached for scanCacheTTL to absorb repeated requests (page
+// load hits /api/albums several times); admin mutations call
+// InvalidateScan to drop stale entries immediately.
 func Scan(root, webPrefix string) ([]*Album, error) {
-	return scanDir(root, "", webPrefix)
+	key := root + "\x00" + webPrefix
+	scanCacheMu.Lock()
+	if e, ok := scanCache[key]; ok && time.Since(e.cachedAt) < scanCacheTTL {
+		albums := e.albums
+		scanCacheMu.Unlock()
+		return albums, nil
+	}
+	scanCacheMu.Unlock()
+
+	albums, err := scanDir(root, "", webPrefix)
+	if err != nil {
+		return nil, err
+	}
+	scanCacheMu.Lock()
+	scanCache[key] = scanCacheEntry{albums: albums, cachedAt: time.Now()}
+	scanCacheMu.Unlock()
+	return albums, nil
+}
+
+// InvalidateScan drops cached Scan results (all keys, or nil for none).
+// Called after admin mutations so the next public request re-walks the
+// tree instead of serving up-to-2s-stale data.
+func InvalidateScan() {
+	scanCacheMu.Lock()
+	scanCache = map[string]scanCacheEntry{}
+	scanCacheMu.Unlock()
 }
 
 func scanDir(root, rel, webPrefix string) ([]*Album, error) {
@@ -158,6 +202,7 @@ func scanDir(root, rel, webPrefix string) ([]*Album, error) {
 		}
 		a, err := scanNode(root, childRel, webPrefix, false)
 		if err != nil {
+			log.Printf("scan %s: %v", childRel, err)
 			continue
 		}
 		albums = append(albums, a)
@@ -175,7 +220,9 @@ func readOrder(dir string) []string {
 // WriteOrder persists the manual child order for dir. Pass nil or an empty
 // slice to remove the order file.
 func WriteOrder(dir string, names []string) error {
-	return writeNameList(filepath.Join(dir, OrderFileName), names)
+	err := writeNameList(filepath.Join(dir, OrderFileName), names)
+	InvalidateScan()
+	return err
 }
 
 // ReadHidden returns the set of hidden photo names in dir.
@@ -191,7 +238,9 @@ func ReadHidden(dir string) map[string]bool {
 // WriteHidden persists the hidden photo list for dir. Pass nil or an empty
 // slice to remove the file.
 func WriteHidden(dir string, names []string) error {
-	return writeNameList(filepath.Join(dir, HiddenFileName), names)
+	err := writeNameList(filepath.Join(dir, HiddenFileName), names)
+	InvalidateScan()
+	return err
 }
 
 // readNameList reads a newline-separated name list file, returning the
@@ -283,7 +332,10 @@ func scanNode(root, rel, webPrefix string, withPhotos bool) (*Album, error) {
 	if err != nil {
 		return nil, err
 	}
-	photoNames, _ := listImages(dir)
+	photoNames, err := listImages(dir)
+	if err != nil {
+		log.Printf("scan %s photos: %v", rel, err)
+	}
 	hidden := ReadHidden(dir)
 	visibleCount := 0
 	for _, n := range photoNames {
@@ -292,7 +344,10 @@ func scanNode(root, rel, webPrefix string, withPhotos bool) (*Album, error) {
 		}
 	}
 	desc, _ := os.ReadFile(filepath.Join(dir, "description.txt"))
-	children, _ := scanDir(root, rel, webPrefix)
+	children, err := scanDir(root, rel, webPrefix)
+	if err != nil {
+		log.Printf("scan %s children: %v", rel, err)
+	}
 	name := rel
 	if i := strings.LastIndex(rel, "/"); i >= 0 {
 		name = rel[i+1:]
@@ -387,7 +442,10 @@ func CleanRelPath(rel string) (string, error) {
 }
 
 func buildPhotos(root, rel, webPrefix, dir, cover string, includeHidden bool) []Photo {
-	names, _ := listImages(dir)
+	names, err := listImages(dir)
+	if err != nil {
+		log.Printf("scan %s photos: %v", rel, err)
+	}
 	hidden := ReadHidden(dir)
 	photos := make([]Photo, 0, len(names))
 	for _, n := range names {
