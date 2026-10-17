@@ -11,13 +11,23 @@ import (
 )
 
 type PublicHandlers struct {
-	PhotosDir string
-	ThumbsDir string
-	WebPrefix string
+	PhotosDir    string
+	ThumbsDir    string
+	WebPrefix    string
+	GridSize     int
+	LightboxSize int
+}
+
+func (h *PublicHandlers) scanOpts() gallery.Options {
+	return gallery.Options{
+		WebPrefix:    h.WebPrefix,
+		GridSize:     h.GridSize,
+		LightboxSize: h.LightboxSize,
+	}
 }
 
 func (h *PublicHandlers) ListAlbums(w http.ResponseWriter, r *http.Request) {
-	albums, err := gallery.Scan(h.PhotosDir, h.WebPrefix)
+	albums, err := gallery.ScanOpts(h.PhotosDir, h.scanOpts())
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
@@ -34,7 +44,7 @@ func (h *PublicHandlers) GetAlbum(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad album path", 400)
 		return
 	}
-	full, err := gallery.ScanAlbum(h.PhotosDir, name, h.WebPrefix)
+	full, err := gallery.ScanAlbumOpts(h.PhotosDir, name, h.scanOpts())
 	if err != nil {
 		http.Error(w, "album not found", 404)
 		return

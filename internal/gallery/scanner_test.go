@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 )
@@ -152,6 +153,55 @@ func TestScanCacheInvalidation(t *testing.T) {
 	}
 	if len(fresh) != 2 {
 		t.Fatalf("after invalidation want 2 albums, got %d", len(fresh))
+	}
+}
+
+func TestScanThumbSizesFromOptions(t *testing.T) {
+	dir := t.TempDir()
+	album := filepath.Join(dir, "a")
+	if err := os.MkdirAll(album, 0755); err != nil {
+		t.Fatal(err)
+	}
+	makeTestJPEG(t, filepath.Join(album, "01.jpg"), 10, 10)
+
+	opts := Options{WebPrefix: "/photos", GridSize: 300, LightboxSize: 1200}
+	full, err := ScanAlbumOpts(dir, "a", opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(full.Photos) != 1 {
+		t.Fatalf("want 1 photo, got %d", len(full.Photos))
+	}
+	p := full.Photos[0]
+	if !strings.Contains(p.ThumbURL, "w=300") {
+		t.Errorf("ThumbURL not using grid size: %s", p.ThumbURL)
+	}
+	if !strings.Contains(p.LightboxURL, "w=1200") {
+		t.Errorf("LightboxURL not using lightbox size: %s", p.LightboxURL)
+	}
+	if !strings.Contains(p.ThumbURL, "p=%2Fphotos%2Fa%2F01.jpg") {
+		t.Errorf("ThumbURL path: %s", p.ThumbURL)
+	}
+
+	// Cover thumb on the album node also uses the configured size.
+	albums, err := ScanOpts(dir, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(albums) != 1 || !strings.Contains(albums[0].CoverThumb, "w=300") {
+		t.Errorf("CoverThumb not using grid size: %+v", albums)
+	}
+
+	// Default wrapper keeps 480/1600 for callers that only pass a prefix.
+	fullDefault, err := ScanAlbum(dir, "a", "/photos")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(fullDefault.Photos[0].ThumbURL, "w=480") {
+		t.Errorf("default ThumbURL: %s", fullDefault.Photos[0].ThumbURL)
+	}
+	if !strings.Contains(fullDefault.Photos[0].LightboxURL, "w=1600") {
+		t.Errorf("default LightboxURL: %s", fullDefault.Photos[0].LightboxURL)
 	}
 }
 

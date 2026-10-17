@@ -77,15 +77,19 @@ func main() {
 	}
 
 	pub := &api.PublicHandlers{
-		PhotosDir: cfg.PhotosDir,
-		ThumbsDir: cfg.ThumbsDir,
-		WebPrefix: cfg.WebPathPrefix,
+		PhotosDir:    cfg.PhotosDir,
+		ThumbsDir:    cfg.ThumbsDir,
+		WebPrefix:    cfg.WebPathPrefix,
+		GridSize:     cfg.GridThumbSize,
+		LightboxSize: cfg.LightboxSize,
 	}
 	adm := &api.AdminHandlers{
 		PhotosDir:     cfg.PhotosDir,
 		ThumbsDir:     cfg.ThumbsDir,
 		WebPrefix:     cfg.WebPathPrefix,
 		UploadLimitMB: cfg.MaxUploadMB,
+		GridSize:      cfg.GridThumbSize,
+		LightboxSize:  cfg.LightboxSize,
 	}
 
 	mux := http.NewServeMux()

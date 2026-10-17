@@ -24,13 +24,15 @@ type AdminHandlers struct {
 	ThumbsDir     string
 	WebPrefix     string
 	UploadLimitMB int
+	GridSize      int
+	LightboxSize  int
 	// mu serializes read-modify-write cycles on the per-album metadata
 	// files (.hidden/.order) across admin mutations.
 	mu sync.Mutex
 }
 
 func (h *AdminHandlers) ListManage(w http.ResponseWriter, r *http.Request) {
-	albums, err := gallery.Scan(h.PhotosDir, h.WebPrefix)
+	albums, err := gallery.ScanOpts(h.PhotosDir, h.scanOpts())
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
@@ -50,7 +52,7 @@ func (h *AdminHandlers) ListAlbumManage(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "bad album path", 400)
 		return
 	}
-	full, err := gallery.ScanAlbumAdmin(h.PhotosDir, name, h.WebPrefix)
+	full, err := gallery.ScanAlbumAdminOpts(h.PhotosDir, name, h.scanOpts())
 	if err != nil {
 		http.Error(w, err.Error(), 404)
 		return
@@ -464,13 +466,38 @@ func (h *AdminHandlers) SetHidden(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]string{"status": "ok"})
 }
 
+func (h *AdminHandlers) scanOpts() gallery.Options {
+	return gallery.Options{
+		WebPrefix:    h.WebPrefix,
+		GridSize:     h.GridSize,
+		LightboxSize: h.LightboxSize,
+	}
+}
+
+// thumbSizes returns the sizes /thumb actually serves for this deployment
+// (falling back to the built-in defaults), so cache invalidation removes
+// the same files the handler generates.
+func (h *AdminHandlers) thumbSizes() []int {
+	g, l := h.GridSize, h.LightboxSize
+	if g <= 0 {
+		g = 480
+	}
+	if l <= 0 {
+		l = 1600
+	}
+	if g == l {
+		return []int{g}
+	}
+	return []int{g, l}
+}
+
 func (h *AdminHandlers) invalidateThumb(album, name string) {
 	if h.ThumbsDir == "" {
 		return
 	}
 	rel := path.Join(album, name)
 	_ = os.RemoveAll(filepath.Join(h.ThumbsDir, filepath.FromSlash(rel)))
-	for _, size := range []int{480, 1600} {
+	for _, size := range h.thumbSizes() {
 		_ = os.Remove(filepath.Join(h.ThumbsDir, rel+fmt.Sprintf(".%d.jpg", size)))
 	}
 }

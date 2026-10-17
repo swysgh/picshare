@@ -53,15 +53,18 @@ const OrderFileName = ".order"
 const HiddenFileName = ".hidden"
 
 type Photo struct {
-	Name      string `json:"name"`
-	URL       string `json:"url"`
-	ThumbURL  string `json:"thumb_url"`
-	Size      int64  `json:"size"`
-	Modified  int64  `json:"modified"`
-	IsCover   bool   `json:"is_cover"`
-	Hidden    bool   `json:"hidden,omitempty"`
-	Width     int    `json:"width"`
-	Height    int    `json:"height"`
+	Name     string `json:"name"`
+	URL      string `json:"url"`
+	ThumbURL string `json:"thumb_url"`
+	// LightboxURL is the /thumb URL sized for the photo viewer
+	// (lightbox_size); empty only if sizes were misconfigured.
+	LightboxURL string `json:"lightbox_url,omitempty"`
+	Size        int64  `json:"size"`
+	Modified    int64  `json:"modified"`
+	IsCover     bool   `json:"is_cover"`
+	Hidden      bool   `json:"hidden,omitempty"`
+	Width       int    `json:"width"`
+	Height      int    `json:"height"`
 }
 
 type Album struct {
@@ -145,12 +148,40 @@ type scanCacheEntry struct {
 	cachedAt time.Time
 }
 
+// Options parameterizes the scanner: the URL prefix for image URLs plus
+// the thumbnail sizes that /thumb URLs are generated with.
+type Options struct {
+	WebPrefix    string
+	GridSize     int
+	LightboxSize int
+}
+
+func gridSize(opts Options) int {
+	if opts.GridSize > 0 {
+		return opts.GridSize
+	}
+	return 480
+}
+
+func lightboxSize(opts Options) int {
+	if opts.LightboxSize > 0 {
+		return opts.LightboxSize
+	}
+	return 1600
+}
+
 // Scan returns the top-level albums. Each album may contain nested Children,
 // so subdirectories are browsable as multi-level folder categories.
 // Results are cached for scanCacheTTL to absorb repeated requests (page
 // load hits /api/albums several times); admin mutations call
 // InvalidateScan to drop stale entries immediately.
 func Scan(root, webPrefix string) ([]*Album, error) {
+	return ScanOpts(root, Options{WebPrefix: webPrefix})
+}
+
+// ScanOpts is Scan with explicit thumbnail sizes.
+func ScanOpts(root string, opts Options) ([]*Album, error) {
+	webPrefix := opts.WebPrefix
 	key := root + "\x00" + webPrefix
 	scanCacheMu.Lock()
 	if e, ok := scanCache[key]; ok && time.Since(e.cachedAt) < scanCacheTTL {
@@ -160,7 +191,7 @@ func Scan(root, webPrefix string) ([]*Album, error) {
 	}
 	scanCacheMu.Unlock()
 
-	albums, err := scanDir(root, "", webPrefix)
+	albums, err := scanDir(root, "", opts)
 	if err != nil {
 		return nil, err
 	}
@@ -179,7 +210,7 @@ func InvalidateScan() {
 	scanCacheMu.Unlock()
 }
 
-func scanDir(root, rel, webPrefix string) ([]*Album, error) {
+func scanDir(root, rel string, opts Options) ([]*Album, error) {
 	dir := root
 	if rel != "" {
 		dir = filepath.Join(root, filepath.FromSlash(rel))
@@ -200,7 +231,7 @@ func scanDir(root, rel, webPrefix string) ([]*Album, error) {
 		if rel != "" {
 			childRel = rel + "/" + e.Name()
 		}
-		a, err := scanNode(root, childRel, webPrefix, false)
+		a, err := scanNode(root, childRel, opts, false)
 		if err != nil {
 			log.Printf("scan %s: %v", childRel, err)
 			continue
@@ -326,7 +357,8 @@ func sortAlbumsByOrder(albums []*Album, order []string) {
 // scanNode builds a single album node. When withPhotos is true the Photos
 // list is populated (album detail); otherwise only PhotoCount is filled so
 // the list view stays cheap. PhotoCount excludes hidden photos.
-func scanNode(root, rel, webPrefix string, withPhotos bool) (*Album, error) {
+func scanNode(root, rel string, opts Options, withPhotos bool) (*Album, error) {
+	webPrefix := opts.WebPrefix
 	dir := filepath.Join(root, filepath.FromSlash(rel))
 	cover, err := findCover(dir)
 	if err != nil {
@@ -344,7 +376,7 @@ func scanNode(root, rel, webPrefix string, withPhotos bool) (*Album, error) {
 		}
 	}
 	desc, _ := os.ReadFile(filepath.Join(dir, "description.txt"))
-	children, err := scanDir(root, rel, webPrefix)
+	children, err := scanDir(root, rel, opts)
 	if err != nil {
 		log.Printf("scan %s children: %v", rel, err)
 	}
@@ -362,7 +394,7 @@ func scanNode(root, rel, webPrefix string, withPhotos bool) (*Album, error) {
 		Children:    children,
 	}
 	if withPhotos {
-		a.Photos = buildPhotos(root, rel, webPrefix, dir, cover, false)
+		a.Photos = buildPhotos(root, rel, opts, dir, cover, false)
 	}
 	if cover != "" {
 		a.CoverURL = joinURL(webPrefix, rel, cover)
@@ -370,7 +402,7 @@ func scanNode(root, rel, webPrefix string, withPhotos bool) (*Album, error) {
 		if fi, err := os.Stat(filepath.Join(dir, cover)); err == nil {
 			coverNano = fi.ModTime().UnixNano()
 		}
-		a.CoverThumb = "/thumb?p=" + urlPathEscape(joinURL(webPrefix, rel, cover)) + "&w=480" + cacheBust(coverNano)
+		a.CoverThumb = "/thumb?p=" + urlPathEscape(joinURL(webPrefix, rel, cover)) + "&w=" + strconv.Itoa(gridSize(opts)) + cacheBust(coverNano)
 	}
 	return a, nil
 }
@@ -399,16 +431,26 @@ func mtimeNano(fi os.FileInfo) int64 {
 // at the slash-separated relative path rel from root. Hidden photos are
 // excluded from the Photos list.
 func ScanAlbum(root, rel, webPrefix string) (*Album, error) {
-	return scanAlbum(root, rel, webPrefix, false)
+	return ScanAlbumOpts(root, rel, Options{WebPrefix: webPrefix})
+}
+
+// ScanAlbumOpts is ScanAlbum with explicit thumbnail sizes.
+func ScanAlbumOpts(root, rel string, opts Options) (*Album, error) {
+	return scanAlbum(root, rel, opts, false)
 }
 
 // ScanAlbumAdmin is ScanAlbum but includes hidden photos in the Photos list,
 // marking each with Photo.Hidden so the admin UI can render the state.
 func ScanAlbumAdmin(root, rel, webPrefix string) (*Album, error) {
-	return scanAlbum(root, rel, webPrefix, true)
+	return ScanAlbumAdminOpts(root, rel, Options{WebPrefix: webPrefix})
 }
 
-func scanAlbum(root, rel, webPrefix string, includeHidden bool) (*Album, error) {
+// ScanAlbumAdminOpts is ScanAlbumAdmin with explicit thumbnail sizes.
+func ScanAlbumAdminOpts(root, rel string, opts Options) (*Album, error) {
+	return scanAlbum(root, rel, opts, true)
+}
+
+func scanAlbum(root, rel string, opts Options, includeHidden bool) (*Album, error) {
 	clean, err := CleanRelPath(rel)
 	if err != nil {
 		return nil, fmt.Errorf("album not found")
@@ -418,12 +460,12 @@ func scanAlbum(root, rel, webPrefix string, includeHidden bool) (*Album, error) 
 	if err != nil || !info.IsDir() {
 		return nil, fmt.Errorf("album not found")
 	}
-	a, err := scanNode(root, clean, webPrefix, false)
+	a, err := scanNode(root, clean, opts, false)
 	if err != nil {
 		return nil, err
 	}
 	cover, _ := findCover(dir)
-	a.Photos = buildPhotos(root, clean, webPrefix, dir, cover, includeHidden)
+	a.Photos = buildPhotos(root, clean, opts, dir, cover, includeHidden)
 	return a, nil
 }
 
@@ -441,12 +483,13 @@ func CleanRelPath(rel string) (string, error) {
 	return path.Clean(rel), nil
 }
 
-func buildPhotos(root, rel, webPrefix, dir, cover string, includeHidden bool) []Photo {
+func buildPhotos(root, rel string, opts Options, dir, cover string, includeHidden bool) []Photo {
 	names, err := listImages(dir)
 	if err != nil {
 		log.Printf("scan %s photos: %v", rel, err)
 	}
 	hidden := ReadHidden(dir)
+	webPrefix := opts.WebPrefix
 	photos := make([]Photo, 0, len(names))
 	for _, n := range names {
 		isHidden := hidden[n]
@@ -461,16 +504,18 @@ func buildPhotos(root, rel, webPrefix, dir, cover string, includeHidden bool) []
 			mtime = finfo.ModTime().Unix()
 		}
 		w, h := readImageSize(filepath.Join(dir, n))
+		imgURL := joinURL(webPrefix, rel, n)
 		photos = append(photos, Photo{
 			Name:     n,
-			URL:      joinURL(webPrefix, rel, n),
-			ThumbURL: "/thumb?p=" + urlPathEscape(joinURL(webPrefix, rel, n)) + "&w=480" + cacheBust(mtimeNano(finfo)),
-			Size:     size,
-			Modified: mtime,
-			IsCover:  n == cover,
-			Hidden:   isHidden,
-			Width:    w,
-			Height:   h,
+			URL:      imgURL,
+			ThumbURL: "/thumb?p=" + urlPathEscape(imgURL) + "&w=" + strconv.Itoa(gridSize(opts)) + cacheBust(mtimeNano(finfo)),
+			LightboxURL: "/thumb?p=" + urlPathEscape(imgURL) + "&w=" + strconv.Itoa(lightboxSize(opts)) + cacheBust(mtimeNano(finfo)),
+			Size:        size,
+			Modified:    mtime,
+			IsCover:     n == cover,
+			Hidden:      isHidden,
+			Width:       w,
+			Height:      h,
 		})
 	}
 	// Newest upload first; fall back to natural name order on ties.
