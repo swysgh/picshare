@@ -33,7 +33,10 @@ var imageExts = map[string]bool{
 	".tiff": true,
 }
 
-var coverNames = []string{
+// CoverNames lists the recognized album cover file names in priority order.
+// Exported so the admin SetCover handler can remove stale covers from the
+// same single source of truth instead of keeping its own copy of the list.
+var CoverNames = []string{
 	"cover.jpg", "cover.jpeg", "cover.png", "cover.webp",
 	"folder.jpg", "folder.jpeg", "folder.png", "folder.webp",
 }
@@ -399,7 +402,7 @@ func buildPhotos(root, rel, webPrefix, dir, cover string, includeHidden bool) []
 }
 
 func findCover(dir string) (string, error) {
-	for _, n := range coverNames {
+	for _, n := range CoverNames {
 		if _, err := os.Stat(filepath.Join(dir, n)); err == nil {
 			return n, nil
 		}

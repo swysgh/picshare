@@ -84,10 +84,9 @@ func main() {
 		WebPrefix: cfg.WebPathPrefix,
 	}
 	adm := &api.AdminHandlers{
-		PhotosDir:    cfg.PhotosDir,
-		ThumbsDir:    cfg.ThumbsDir,
-		WebPrefix:    cfg.WebPathPrefix,
-		ThumbHandler: thumbHandler,
+		PhotosDir: cfg.PhotosDir,
+		ThumbsDir: cfg.ThumbsDir,
+		WebPrefix: cfg.WebPathPrefix,
 	}
 
 	mux := http.NewServeMux()

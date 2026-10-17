@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"image/jpeg"
 	"io"
 	"log"
 	"net/http"
@@ -13,15 +14,14 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/disintegration/imaging"
 	"github.com/swys/picshare/internal/gallery"
-	"github.com/swys/picshare/internal/thumb"
 )
 
 type AdminHandlers struct {
-	PhotosDir    string
-	ThumbsDir    string
-	WebPrefix    string
-	ThumbHandler *thumb.Handler
+	PhotosDir string
+	ThumbsDir string
+	WebPrefix string
 }
 
 func (h *AdminHandlers) ListManage(w http.ResponseWriter, r *http.Request) {
@@ -201,7 +201,8 @@ func (h *AdminHandlers) Rename(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]string{"status": "ok"})
 }
 
-func (h *AdminHandlers) SetCover(w http.ResponseWriter, r *http.Request) {	var req struct {
+func (h *AdminHandlers) SetCover(w http.ResponseWriter, r *http.Request) {
+	var req struct {
 		Album string `json:"album"`
 		Photo string `json:"photo"`
 	}
@@ -220,18 +221,30 @@ func (h *AdminHandlers) SetCover(w http.ResponseWriter, r *http.Request) {	var r
 	}
 	albumDir := filepath.Join(h.PhotosDir, filepath.FromSlash(req.Album))
 	src := filepath.Join(albumDir, photo)
-	ext := filepath.Ext(photo)
+	// GIF/BMP/TIFF never become cover.<same ext>: the cover must be a
+	// browser-friendly JPEG, so those are re-encoded into cover.jpg.
+	ext := strings.ToLower(filepath.Ext(photo))
+	if ext == ".gif" || ext == ".bmp" || ext == ".tif" || ext == ".tiff" {
+		ext = ".jpg"
+	}
 	cover := filepath.Join(albumDir, "cover"+ext)
 	if _, err := os.Stat(src); err != nil {
 		http.Error(w, "source not found", 404)
 		return
 	}
-	for _, old := range []string{"cover.jpg", "cover.jpeg", "cover.png", "cover.webp"} {
+	// Setting the cover to itself is a no-op; copying a file onto itself
+	// would truncate it to zero bytes.
+	if filepath.Clean(src) == filepath.Clean(cover) {
+		writeJSON(w, map[string]string{"status": "ok", "cover": "cover" + ext})
+		return
+	}
+	for _, old := range gallery.CoverNames {
 		_ = os.Remove(filepath.Join(albumDir, old))
 		h.invalidateThumb(req.Album, old)
 	}
-	if err := copyFile(src, cover); err != nil {
-		http.Error(w, err.Error(), 500)
+	if err := copyFile(src, cover, ext); err != nil {
+		log.Printf("setcover %s/%s: %v", req.Album, photo, err)
+		http.Error(w, "set cover failed", 500)
 		return
 	}
 	// Ensure subsequent thumbnail requests for the new cover miss the cache
@@ -378,19 +391,56 @@ func validFileName(s string) bool {
 	return true
 }
 
-func copyFile(src, dst string) error {
+// copyFile copies src to dst atomically: it writes a temp file next to dst,
+// syncs it, and renames it into place, so a crash or error never leaves a
+// truncated half-written dst behind. When ext indicates a format that must
+// not be stored as the cover (.gif/.bmp/.tif/.tiff), the image is decoded
+// and re-encoded as JPEG instead of a byte copy.
+func copyFile(src, dst, ext string) error {
 	in, err := os.Open(src)
 	if err != nil {
 		return err
 	}
 	defer in.Close()
-	out, err := os.Create(dst)
+	tmp, err := os.CreateTemp(filepath.Dir(dst), ".cover-*")
 	if err != nil {
 		return err
 	}
-	defer out.Close()
-	if _, err := io.Copy(out, in); err != nil {
+	tmpName := tmp.Name()
+	if err := writeCoverFile(tmp, in, ext); err != nil {
+		tmp.Close()
+		os.Remove(tmpName)
 		return err
 	}
-	return out.Close()
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		os.Remove(tmpName)
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmpName)
+		return err
+	}
+	if err := os.Chmod(tmpName, 0644); err != nil {
+		os.Remove(tmpName)
+		return err
+	}
+	return os.Rename(tmpName, dst)
+}
+
+// writeCoverFile writes the cover bytes to w: a plain stream copy for
+// JPEG/PNG/WebP, or a JPEG re-encode for formats the cover name must not
+// carry (GIF/BMP/TIFF).
+func writeCoverFile(w io.Writer, r io.Reader, ext string) error {
+	switch ext {
+	case ".gif", ".bmp", ".tif", ".tiff":
+		img, err := imaging.Decode(r)
+		if err != nil {
+			return fmt.Errorf("decode %s: %w", ext, err)
+		}
+		return jpeg.Encode(w, img, &jpeg.Options{Quality: 90})
+	default:
+		_, err := io.Copy(w, r)
+		return err
+	}
 }
