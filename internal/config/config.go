@@ -7,7 +7,9 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"time"
 )
 
 // DefaultMaxUploadMB is the per-request upload body cap (in MB) when
@@ -27,6 +29,24 @@ type Config struct {
 	EnableExifRotate bool   `json:"enable_exif_rotation"`
 	WebPathPrefix    string `json:"web_path_prefix"`
 	MaxUploadMB      int    `json:"max_upload_mb"`
+
+	// Landing page (the root "/" screen). LandingEnabled defaults to true
+	// in Default(); a config file that omits it therefore keeps the
+	// feature on, and writing "landing_enabled": false is the kill switch
+	// that restores the pre-landing behaviour of "/".
+	LandingEnabled            bool   `json:"landing_enabled"`
+	LandingTitle              string `json:"landing_title"`
+	LandingSubtitle           string `json:"landing_subtitle"`
+	LandingCTAText            string `json:"landing_cta_text"`
+	LandingBackground         string `json:"landing_background"`
+	LandingBackgroundPortrait string `json:"landing_background_portrait"`
+	LandingBackdropOpacity    int    `json:"landing_backdrop_opacity"`
+	LandingRemember           string `json:"landing_remember"`
+	LandingVersion            int    `json:"landing_version"`
+
+	// LandingRememberTTL is derived from LandingRemember by validate();
+	// it never comes from JSON (time.Duration has no JSON form).
+	LandingRememberTTL time.Duration `json:"-"`
 }
 
 func Default() *Config {
@@ -43,6 +63,11 @@ func Default() *Config {
 		EnableExifRotate: true,
 		WebPathPrefix:    "/photos",
 		MaxUploadMB:      DefaultMaxUploadMB,
+
+		LandingEnabled:         true,
+		LandingBackdropOpacity: 45,
+		LandingRemember:        "30d",
+		LandingVersion:         1,
 	}
 }
 
@@ -109,7 +134,52 @@ func validate(cfg *Config) error {
 	if err := validateAdminPass(cfg); err != nil {
 		return err
 	}
+	if err := validateLanding(cfg); err != nil {
+		return err
+	}
 	return nil
+}
+
+func validateLanding(cfg *Config) error {
+	if cfg.LandingBackdropOpacity < 0 || cfg.LandingBackdropOpacity > 100 {
+		return fmt.Errorf("landing_backdrop_opacity 必须在 0-100 之间（当前 %d）", cfg.LandingBackdropOpacity)
+	}
+	if cfg.LandingVersion <= 0 {
+		// A cookie value of "v0" is valid but meaningless; treat a missing
+		// or nonsensical version as the first one.
+		cfg.LandingVersion = 1
+	}
+	ttl, err := ParseRemember(cfg.LandingRemember)
+	if err != nil {
+		return err
+	}
+	cfg.LandingRememberTTL = ttl
+	return nil
+}
+
+// ParseRemember converts landing_remember into the landing cookie's TTL.
+// "off" disables the cookie (0). time.ParseDuration does not understand
+// "d", so day values are parsed here; everything else falls through to it.
+func ParseRemember(s string) (time.Duration, error) {
+	v := strings.TrimSpace(strings.ToLower(s))
+	switch v {
+	case "":
+		return 0, errors.New("landing_remember 不能为空（允许 off / 12h / 7d / 30d）")
+	case "off":
+		return 0, nil
+	}
+	if strings.HasSuffix(v, "d") {
+		days, err := strconv.Atoi(strings.TrimSuffix(v, "d"))
+		if err != nil || days <= 0 || days > 3650 {
+			return 0, fmt.Errorf("landing_remember %q 不是合法的天数（允许 1d-3650d，或 off / 12h）", s)
+		}
+		return time.Duration(days) * 24 * time.Hour, nil
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil || d <= 0 {
+		return 0, fmt.Errorf("landing_remember %q 非法（允许 off / 12h / 7d / 30d）", s)
+	}
+	return d, nil
 }
 
 // reservedPrefixes are URL paths owned by the app's own mux routes; a

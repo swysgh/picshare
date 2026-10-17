@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func writeConfig(t *testing.T, body string) string {
@@ -132,5 +133,103 @@ func TestValidateMaxUploadMB(t *testing.T) {
 }`
 	if _, err := Load(writeConfig(t, body)); err == nil {
 		t.Error("negative max_upload_mb should be rejected")
+	}
+}
+
+func TestParseRemember(t *testing.T) {
+	ok := []struct {
+		in   string
+		want time.Duration
+	}{
+		{"off", 0},
+		{"OFF", 0},
+		{"12h", 12 * time.Hour},
+		{"7d", 7 * 24 * time.Hour},
+		{"30d", 30 * 24 * time.Hour},
+		{" 30d ", 30 * 24 * time.Hour},
+		{"90m", 90 * time.Minute},
+	}
+	for _, c := range ok {
+		got, err := ParseRemember(c.in)
+		if err != nil {
+			t.Errorf("ParseRemember(%q) returned error: %v", c.in, err)
+			continue
+		}
+		if got != c.want {
+			t.Errorf("ParseRemember(%q) = %v, want %v", c.in, got, c.want)
+		}
+	}
+
+	bad := []string{"", "0d", "-1d", "d", "1.5d", "abc", "0s", "-12h", "99999d"}
+	for _, in := range bad {
+		if _, err := ParseRemember(in); err == nil {
+			t.Errorf("ParseRemember(%q) should be rejected", in)
+		}
+	}
+}
+
+func TestValidateLanding(t *testing.T) {
+	dir := t.TempDir()
+	base := func(extra string) string {
+		body := `{
+  "listen": "127.0.0.1:8080",
+  "photos_dir": "` + filepath.Join(dir, "photos") + `",
+  "thumbs_dir": "` + filepath.Join(dir, "thumbs") + `",
+  "admin_user": "admin",
+  "admin_pass": "a-strong-pass"` + extra + `
+}`
+		return body
+	}
+
+	// Omitted landing_* keys must keep the defaults from Default().
+	cfg, err := Load(writeConfig(t, base("")))
+	if err != nil {
+		t.Fatalf("defaults rejected: %v", err)
+	}
+	if !cfg.LandingEnabled {
+		t.Error("landing_enabled should default to true")
+	}
+	if cfg.LandingVersion != 1 {
+		t.Errorf("landing_version default = %d, want 1", cfg.LandingVersion)
+	}
+	if cfg.LandingRememberTTL != 30*24*time.Hour {
+		t.Errorf("landing_remember default TTL = %v, want 720h", cfg.LandingRememberTTL)
+	}
+	if cfg.LandingBackdropOpacity != 45 {
+		t.Errorf("landing_backdrop_opacity default = %d, want 45", cfg.LandingBackdropOpacity)
+	}
+
+	// Explicit kill switch + off must survive loading.
+	cfg, err = Load(writeConfig(t, base(`,
+  "landing_enabled": false,
+  "landing_remember": "off",
+  "landing_version": 3`)))
+	if err != nil {
+		t.Fatalf("explicit landing config rejected: %v", err)
+	}
+	if cfg.LandingEnabled {
+		t.Error("landing_enabled=false was not honored")
+	}
+	if cfg.LandingRememberTTL != 0 {
+		t.Errorf("landing_remember=off TTL = %v, want 0", cfg.LandingRememberTTL)
+	}
+	if cfg.LandingVersion != 3 {
+		t.Errorf("landing_version = %d, want 3", cfg.LandingVersion)
+	}
+
+	// Out-of-range backdrop and bad remember values must fail loudly.
+	for _, extra := range []string{
+		`,
+  "landing_backdrop_opacity": 101`,
+		`,
+  "landing_backdrop_opacity": -1`,
+		`,
+  "landing_remember": "30days"`,
+		`,
+  "landing_remember": ""`,
+	} {
+		if _, err := Load(writeConfig(t, base(extra))); err == nil {
+			t.Errorf("config with%s should be rejected", extra)
+		}
 	}
 }

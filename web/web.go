@@ -2,6 +2,7 @@ package web
 
 import (
 	"embed"
+	"html"
 	"io"
 	"io/fs"
 	"mime"
@@ -13,8 +14,25 @@ import (
 //go:embed *.html css/*.css js/*.js vendor/photoswipe/*.css vendor/photoswipe/*.js
 var files embed.FS
 
-func NewHandler(defaultLang string) http.Handler {
+// Options carries every value that is injected into the embedded HTML at
+// request time. The values are plain strings because the templates are
+// static files: <!--PICSHARE_*--> markers are replaced in place, and each
+// replacement is HTML-escaped (thumbnail URLs contain "&w=...&v=...").
+type Options struct {
+	DefaultLang string
+	SiteTitle   string
+
+	LandingTitle      string
+	LandingSubtitle   string
+	LandingCTA        string
+	LandingBG         string
+	LandingBGPortrait string
+	LandingBackdrop   string
+}
+
+func NewHandler(opts Options) http.Handler {
 	sub, _ := fs.Sub(files, ".")
+	replacer := newReplacer(opts)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p := r.URL.Path
 		if p == "/" {
@@ -40,20 +58,26 @@ func NewHandler(defaultLang string) http.Handler {
 			ct = "application/octet-stream"
 		}
 		w.Header().Set("Content-Type", ct)
-		if strings.HasSuffix(p, "admin.html") {
+		switch {
+		case strings.HasSuffix(p, "admin.html"):
 			// The admin shell is dynamic (auth-protected); never let a
 			// shared browser cache serve it after logout.
 			w.Header().Set("Cache-Control", "no-store")
-		} else {
+		case p == "landing.html":
+			// The landing page carries the remembered-entry decision: a
+			// cached copy could be shown to a visitor whose cookie is
+			// already set, or keep a stale background URL alive.
+			w.Header().Set("Cache-Control", "no-store")
+		default:
 			w.Header().Set("Cache-Control", "public, max-age=3600")
 		}
-		if ext == ".html" && defaultLang != "" {
+		if ext == ".html" {
 			data, err := io.ReadAll(f)
 			if err != nil {
 				http.Error(w, "read error", 500)
 				return
 			}
-			s := strings.ReplaceAll(string(data), "<!--PICSHARE_DEFAULT_LANG-->", defaultLang)
+			s := replacer.Replace(string(data))
 			w.Header().Set("Content-Length", itoa(int64(len(s))))
 			_, _ = io.WriteString(w, s)
 			return
@@ -61,6 +85,26 @@ func NewHandler(defaultLang string) http.Handler {
 		w.Header().Set("Content-Length", itoa(stat.Size()))
 		_, _ = io.Copy(w, f)
 	})
+}
+
+// newReplacer builds the marker table once per handler. Empty optional
+// values intentionally replace the marker with an empty string: the page
+// then falls back to i18n copy (data-i18n) or to the gradient background.
+func newReplacer(opts Options) *strings.Replacer {
+	title := opts.LandingTitle
+	if title == "" {
+		title = opts.SiteTitle
+	}
+	return strings.NewReplacer(
+		"<!--PICSHARE_DEFAULT_LANG-->", html.EscapeString(opts.DefaultLang),
+		"<!--PICSHARE_SITE_TITLE-->", html.EscapeString(opts.SiteTitle),
+		"<!--PICSHARE_LANDING_TITLE-->", html.EscapeString(title),
+		"<!--PICSHARE_LANDING_SUBTITLE-->", html.EscapeString(opts.LandingSubtitle),
+		"<!--PICSHARE_LANDING_CTA-->", html.EscapeString(opts.LandingCTA),
+		"<!--PICSHARE_LANDING_BG-->", html.EscapeString(opts.LandingBG),
+		"<!--PICSHARE_LANDING_BG_PORTRAIT-->", html.EscapeString(opts.LandingBGPortrait),
+		"<!--PICSHARE_LANDING_BACKDROP-->", html.EscapeString(opts.LandingBackdrop),
+	)
 }
 
 func itoa(n int64) string {

@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="zh" data-default-lang="<!--PICSHARE_DEFAULT_LANG-->">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title><!--PICSHARE_LANDING_TITLE--></title>
+<link rel="stylesheet" href="/css/public.css">
+<link rel="stylesheet" href="/css/landing.css">
+</head>
+<body class="landing-body">
+<main class="landing">
+  <picture class="landing-bg">
+    <source media="(orientation: portrait)" srcset="<!--PICSHARE_LANDING_BG_PORTRAIT-->">
+    <img srcset="<!--PICSHARE_LANDING_BG-->" sizes="100vw" alt="">
+  </picture>
+  <div class="veil" style="opacity:<!--PICSHARE_LANDING_BACKDROP-->"></div>
+  <div class="hero">
+    <h1><!--PICSHARE_LANDING_TITLE--></h1>
+    <p class="sub" data-i18n-fallback="landing_subtitle"><!--PICSHARE_LANDING_SUBTITLE--></p>
+    <a class="cta" href="/enter"><span data-i18n-fallback="landing_enter"><!--PICSHARE_LANDING_CTA--></span><span class="arrow" aria-hidden="true">→</span></a>
+    <span class="hint" data-i18n-fallback="landing_enter_hint"></span>
+  </div>
+  <div class="lang" id="lang-switch"></div>
+</main>
+<script src="/js/i18n.js"></script>
+<script src="/js/landing.js"></script>
+</body>
+</html>

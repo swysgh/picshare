@@ -2,7 +2,7 @@
 
 | 项 | 值 |
 |---|---|
-| 状态 | **未开始**（本文只是执行依据，代码尚未改动） |
+| 状态 | **已实现**（2026-10-18，见文末「实现备注」） |
 | 日期 | 2026-10-18 |
 | 来源 | 客户需求：进入首页先显示一个"霸气"的着陆页，参考 Lychee，但不要那么复杂 |
 | 参考实现 | Lychee v8 的 `classic` 布局（`resources/js/v8/views/landing/LandingClassic.vue`） |
@@ -272,3 +272,18 @@ curl -s localhost:8080/album/尺寸测试 | grep -c photo-grid            # 1
 - 只加功能**不要顺手打 `v*` tag**（打 tag 会触发 GitHub Actions 发 Release）
 - 部署机是 rich37：`/hhdisk/rich37/picshare` + `/etc/picshare.json` + systemd + nginx 直出 `/photos`、`/thumbs`。只改前端时替换二进制即可；改了配置字段要同步那份 JSON（本次不需要，缺省值即可）
 - `config.json` 含真实后台密码，已在 `.gitignore` 里，不要提交；不要动 `photos/`、`thumbs/`
+
+---
+
+## 12. 实现备注（2026-10-18）
+
+与本文的两处差异，均为 CSP 要求所致：
+
+1. **着陆页脚本是外联文件 `web/js/landing.js`**，不是 inline `<script>`。CSP 未声明 `script-src` 时会回落到 `default-src 'self'`，inline 脚本本来就会被挡；因此 CSP 显式补上 `script-src 'self'`（不加 `unsafe-inline`），着陆页的 i18n 兜底、语言切换、Enter 快捷进入都放进 `landing.js`。
+2. **`default_lang` 改为注入 `data-default-lang` 属性**（`index.html` / `landing.html` 的 `<html>`），`i18n.js` 的 `detectLang()` 优先读它。原来 `index.html` 里那句 `window.PICSHARE_DEFAULT_LANG = ...` 的 inline 脚本在现有 CSP 下一直是失效的，顺手去掉。
+
+另外：
+
+- 背景图 `<img>` 只用 `srcset`、不写 `src`：空值时浏览器不会去请求当前文档（空 `src` 会被当成页面 URL），也就不用为“没有背景”造占位图。
+- `landing_remember=off` 时连已存在的旧 cookie 也不认，保证“每次进首页都显示”。
+- `landing.html` 走 `Cache-Control: no-store`，避免缓存里的 200 盖住 cookie 判定或留下过期的背景 URL。

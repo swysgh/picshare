@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -18,6 +19,7 @@ import (
 	"github.com/swys/picshare/internal/api"
 	"github.com/swys/picshare/internal/auth"
 	"github.com/swys/picshare/internal/config"
+	"github.com/swys/picshare/internal/gallery"
 	"github.com/swys/picshare/internal/thumb"
 	webui "github.com/swys/picshare/web"
 )
@@ -120,7 +122,37 @@ func main() {
 	mux.Handle("POST /api/admin/sethidden", adminGuard(adm.SetHidden))
 	mux.Handle("POST /api/admin/reorder", adminGuard(adm.Reorder))
 
-	webHandler := webui.NewHandler(cfg.DefaultLang)
+	// Landing background: explicit config wins; otherwise the first album
+	// cover is used at lightbox size (see defaultLandingBackground).
+	landingBG := ""
+	if cfg.LandingEnabled {
+		landingBG = cfg.LandingBackground
+		if landingBG == "" {
+			landingBG = defaultLandingBackground(cfg, logger)
+		}
+	}
+	bgLog := landingBG
+	if bgLog == "" {
+		bgLog = "-"
+	}
+
+	webHandler := webui.NewHandler(webui.Options{
+		DefaultLang:       cfg.DefaultLang,
+		SiteTitle:         cfg.SiteTitle,
+		LandingTitle:      cfg.LandingTitle,
+		LandingSubtitle:   cfg.LandingSubtitle,
+		LandingCTA:        cfg.LandingCTAText,
+		LandingBG:         landingBG,
+		LandingBGPortrait: cfg.LandingBackgroundPortrait,
+		LandingBackdrop:   strconv.FormatFloat(float64(cfg.LandingBackdropOpacity)/100, 'f', -1, 64),
+	})
+
+	// The landing routes must be registered before the "/" catch-all:
+	// "GET /{$}" is Go 1.22+'s exact-match pattern for "/" only, so it
+	// shadows the root of spaHandler without swallowing /gallery or
+	// /album/... (a more specific pattern always wins).
+	mux.HandleFunc("GET /enter", landingEnter(cfg))
+	mux.HandleFunc("GET /{$}", landingGate(cfg, webHandler))
 	mux.Handle("/", spaHandler(webHandler, cfg.WebPathPrefix))
 
 	srv := &http.Server{
@@ -137,6 +169,7 @@ func main() {
 
 	go func() {
 		logger.Printf("listening on %s, photos=%s, thumbs=%s", cfg.Listen, cfg.PhotosDir, cfg.ThumbsDir)
+		logger.Printf("landing enabled=%v remember=%s bg=%s", cfg.LandingEnabled, cfg.LandingRemember, bgLog)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			logger.Fatalf("server: %v", err)
 		}
@@ -162,9 +195,12 @@ func withHeaders(h http.Handler) http.Handler {
 		// relies on a few inline style attributes) and data: images for
 		// placeholders. PhotoSwipe loads its UI from same-origin vendor
 		// files and displays same-origin /thumb + /photos images, so it
-		// is unaffected.
+		// is unaffected. script-src is stated explicitly (falling back to
+		// default-src would mean the same thing) so no page ever needs an
+		// inline <script>: the default language is injected as a data
+		// attribute instead.
 		w.Header().Set("Content-Security-Policy",
-			"default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'")
+			"default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'")
 		defer func() {
 			if rec := recover(); rec != nil {
 				log.Printf("panic recovered: %v\n%s", rec, debugStack())
@@ -196,7 +232,9 @@ func spaHandler(h http.Handler, webPrefix string) http.Handler {
 			return
 		}
 		switch r.URL.Path {
-		case "/":
+		case "/gallery", "/gallery/":
+			// The gallery list used to live at "/"; it now has its own
+			// path so that "/" can host the landing page.
 			r.URL.Path = "/index.html"
 		case "/admin", "/admin/":
 			r.URL.Path = "/admin.html"
@@ -209,6 +247,119 @@ func spaHandler(h http.Handler, webPrefix string) http.Handler {
 		}
 		h.ServeHTTP(w, r)
 	})
+}
+
+const landingCookie = "picshare_landing"
+
+func landingCookieValue(cfg *config.Config) string {
+	return "v" + strconv.Itoa(cfg.LandingVersion)
+}
+
+// landingGate serves GET /. A visitor whose cookie carries the current
+// landing_version goes straight to the gallery; everyone else sees the
+// landing page. "?landing=1" forces the page (preview/demo). With
+// landing_enabled=false the gallery is served exactly as before.
+func landingGate(cfg *config.Config, web http.Handler) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !cfg.LandingEnabled {
+			r.URL.Path = "/index.html"
+			web.ServeHTTP(w, r)
+			return
+		}
+		if r.URL.Query().Get("landing") == "1" {
+			r.URL.Path = "/landing.html"
+			web.ServeHTTP(w, r)
+			return
+		}
+		if cfg.LandingRememberTTL > 0 {
+			// With landing_remember=off no cookie is ever written, so a
+			// stale one must not skip the page either.
+			if c, err := r.Cookie(landingCookie); err == nil && c.Value == landingCookieValue(cfg) {
+				http.Redirect(w, r, "/gallery", http.StatusFound)
+				return
+			}
+		}
+		r.URL.Path = "/landing.html"
+		web.ServeHTTP(w, r)
+	}
+}
+
+// landingEnter is the landing CTA target: it remembers the visit (unless
+// landing_remember=off) and redirects to the gallery either way.
+func landingEnter(cfg *config.Config) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if cfg.LandingRememberTTL > 0 {
+			http.SetCookie(w, &http.Cookie{
+				Name:     landingCookie,
+				Value:    landingCookieValue(cfg),
+				Path:     "/",
+				MaxAge:   int(cfg.LandingRememberTTL.Seconds()),
+				HttpOnly: true,
+				SameSite: http.SameSiteLaxMode,
+			})
+		}
+		w.Header().Set("Cache-Control", "no-store")
+		http.Redirect(w, r, "/gallery", http.StatusFound)
+	}
+}
+
+// defaultLandingBackground picks the first album cover as the landing
+// background when landing_background is empty. It asks for the
+// lightbox-sized thumbnail instead of the 480px grid thumb so the
+// full-screen image is not upscaled. No cover anywhere is not an error:
+// the page falls back to its gradient.
+func defaultLandingBackground(cfg *config.Config, logger *log.Logger) string {
+	albums, err := gallery.ScanOpts(cfg.PhotosDir, gallery.Options{
+		WebPrefix:    cfg.WebPathPrefix,
+		GridSize:     cfg.GridThumbSize,
+		LightboxSize: cfg.LightboxSize,
+	})
+	if err != nil {
+		logger.Printf("landing background: 扫描相册失败: %v", err)
+		return ""
+	}
+	a := firstCoveredAlbum(albums)
+	if a == nil {
+		logger.Printf("landing background: 没有带封面的相册，使用渐变背景")
+		return ""
+	}
+	return lightboxThumbURL(a.CoverThumb, cfg.LightboxSize)
+}
+
+// firstCoveredAlbum walks the album tree depth-first and returns the first
+// album that has a cover.
+func firstCoveredAlbum(albums []*gallery.Album) *gallery.Album {
+	for _, a := range albums {
+		if a == nil {
+			continue
+		}
+		if a.CoverThumb != "" {
+			return a
+		}
+		if c := firstCoveredAlbum(a.Children); c != nil {
+			return c
+		}
+	}
+	return nil
+}
+
+// lightboxThumbURL swaps the w parameter of a cover_thumb URL for the
+// lightbox size. The rest of the URL is left byte-for-byte intact so the
+// existing escaping and the "&v=" cache buster keep working.
+func lightboxThumbURL(thumbURL string, size int) string {
+	if size <= 0 {
+		return thumbURL
+	}
+	i := strings.LastIndex(thumbURL, "&w=")
+	if i < 0 {
+		return thumbURL
+	}
+	rest := thumbURL[i+len("&w="):]
+	end := strings.IndexByte(rest, '&')
+	if end < 0 {
+		end = len(rest)
+	}
+	return thumbURL[:i] + "&w=" + strconv.Itoa(size) + rest[end:]
 }
 
 func initConfig(path string) error {

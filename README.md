@@ -94,13 +94,18 @@ picshare                         # 二进制
 
 ## URL 约定
 
-- `/` & `/index.html` — 前台首页（顶层相册/分类列表）
+- `/` — 着陆页（首次访问显示全屏首屏；已进入过的访客 302 到 `/gallery`）
+- `/?landing=1` — 强制显示着陆页（无视 cookie，演示/预览用）
+- `/enter` — 着陆页 CTA 目标：写记住 cookie 后 302 到 `/gallery`
+- `/gallery` — 前台首页（顶层相册/分类列表）
 - `/album/{path}` — 单相册页（路径可为多级，如 `/album/主力产品/手机`）
 - `/admin/` & `/admin/album/{path}` — 后台文件管理器
 - `/api/albums` — JSON: 顶层相册列表（含 `children` 递归子分类）
 - `/api/albums/{path}` — JSON: 单相册详情（多级路径）
-- `/thumb?p=/photos/...&w=480` — 缩略图（懒生成；带 `v` 参数做缓存破坏）
+- `/thumb?p=/photos/...&w=480` — 缩略图（懒生成；`w` 只认 `grid_thumb_size` 与 `lightbox_size`；带 `v` 参数做缓存破坏）
 - `/photos/{path}/{file}` — 原图（推荐 Nginx 直接服务）
+
+`landing_enabled: false` 时 `/` 直接返回相册列表页，与引入着陆页之前完全一致。
 
 后台 API（Basic Auth）：
 - `POST /api/admin/mkdir` — 建相册（`album` 传完整路径）
@@ -120,13 +125,23 @@ picshare                         # 二进制
   "thumbs_dir": "./thumbs",         // 缩略图缓存
   "admin_user": "admin",            // 后台账号
   "admin_pass": "change-me",        // 后台密码
-  "site_title": "Product Gallery",  // 站名
+  "site_title": "Product Gallery",  // 站名（也用于着陆页标题）
   "default_lang": "zh",             // 初始语言 zh / ko / en
   "grid_thumb_size": 480,           // 网格缩略图最大边
   "lightbox_size": 1600,            // 灯箱图最大边
   "max_upload_mb": 512,             // 上传单文件大小上限（MB），0 = 不限制
   "enable_exif_rotation": true,     // 按 EXIF 自动旋转
-  "web_path_prefix": "/photos"      // 原图 URL 前缀（与 Nginx 配置一致）
+  "web_path_prefix": "/photos",     // 原图 URL 前缀（与 Nginx 配置一致）
+
+  "landing_enabled": true,          // 着陆页总开关；false = "/" 直接进相册列表
+  "landing_title": "",              // 空 = 用 site_title
+  "landing_subtitle": "",           // 空 = 用 i18n 的 landing_subtitle
+  "landing_cta_text": "",           // 空 = 用 i18n 的 landing_enter
+  "landing_background": "",         // 横版背景图 URL；空 = 取第一个有封面相册的封面（w=1600）
+  "landing_background_portrait": "",// 竖版背景图 URL；空 = 回落横版
+  "landing_backdrop_opacity": 45,   // 遮罩不透明度 0-100
+  "landing_remember": "30d",        // off / 12h / 7d / 30d：进入后多久不再显示
+  "landing_version": 1              // 改这个数字 = 所有老访客重新看一遍着陆页
 }
 ```
 

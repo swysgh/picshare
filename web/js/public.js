@@ -1,30 +1,7 @@
 (function () {
   'use strict';
 
-  const { t, getLang, setLang } = window.i18n;
-
-  function initLangSwitch() {
-    const lang = getLang();
-    document.querySelectorAll('.lang-switch button').forEach(btn => {
-      btn.classList.toggle('active', btn.dataset.lang === lang);
-      btn.addEventListener('click', () => {
-        setLang(btn.dataset.lang);
-        location.reload();
-      });
-    });
-  }
-
-  function renderLangSwitch() {
-    const html = `
-      <div class="lang-switch">
-        <button data-lang="zh">${t('language_zh')}</button>
-        <button data-lang="ko">${t('language_ko')}</button>
-        <button data-lang="en">${t('language_en')}</button>
-      </div>
-    `;
-    const el = document.getElementById('lang-switch');
-    if (el) el.innerHTML = html;
-  }
+  const { t } = window.i18n;
 
   async function fetchJSON(url) {
     const r = await fetch(url);
@@ -72,7 +49,7 @@
   function buildBreadcrumb(path) {
     const segs = path.split('/');
     let acc = '';
-    let html = `<a href="/">${t('breadcrumb_home')}</a>`;
+    let html = `<a href="/gallery">${t('breadcrumb_home')}</a>`;
     segs.forEach((seg, i) => {
       acc = acc ? acc + '/' + seg : seg;
       html += ' / ';
@@ -168,8 +145,7 @@
   }
 
   document.addEventListener('DOMContentLoaded', () => {
-    renderLangSwitch();
-    initLangSwitch();
+    window.i18n.renderLangSwitch();
     if (getPageType() === 'home') initHome();
     if (getPageType() === 'album') initAlbum();
   });

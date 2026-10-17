@@ -52,7 +52,10 @@
       cover_badge: '封面',
       hint_cover: '提示：把图片命名为 cover.jpg 可作为封面',
       hint_desc: '提示：在相册目录放 description.txt 可显示描述',
-      hint_sort: '提示：目录名前缀数字可控制排序，如 01.主力产品'
+      hint_sort: '提示：目录名前缀数字可控制排序，如 01.主力产品',
+      landing_subtitle: '每一件产品，都值得被认真看见',
+      landing_enter: '进入图库',
+      landing_enter_hint: '按 Enter 也可进入'
     },
     ko: {
       site_title: '제품 갤러리',
@@ -104,7 +107,10 @@
       cover_badge: '표지',
       hint_cover: '팁: 이미지 이름을 cover.jpg로 하면 표지가 됩니다',
       hint_desc: '팁: 앨범 디렉토리에 description.txt를 두면 설명이 표시됩니다',
-      hint_sort: '팁: 디렉토리 이름 앞에 숫자를 붙이면 정렬됩니다 (예: 01.주력제품)'
+      hint_sort: '팁: 디렉토리 이름 앞에 숫자를 붙이면 정렬됩니다 (예: 01.주력제품)',
+      landing_subtitle: '모든 제품을 한눈에',
+      landing_enter: '갤러리 들어가기',
+      landing_enter_hint: 'Enter 키로도 들어갈 수 있습니다'
     },
     en: {
       site_title: 'Product Gallery',
@@ -156,7 +162,10 @@
       cover_badge: 'Cover',
       hint_cover: 'Tip: name an image cover.jpg to use as the cover',
       hint_desc: 'Tip: put description.txt in an album directory to show a description',
-      hint_sort: 'Tip: prefix a directory name with a number to sort, e.g. 01.Main'
+      hint_sort: 'Tip: prefix a directory name with a number to sort, e.g. 01.Main',
+      landing_subtitle: 'Every product, worth a closer look',
+      landing_enter: 'Enter Gallery',
+      landing_enter_hint: 'Press Enter to enter'
     }
   };
 
@@ -203,7 +212,11 @@
   function detectLang() {
     const saved = readStoredLang();
     if (saved && dict[saved]) return saved;
-    const def = (typeof window !== 'undefined' && window.PICSHARE_DEFAULT_LANG) || '';
+    // The configured default language is injected into the document
+    // element as data-default-lang instead of an inline <script>, so it
+    // still works under a strict Content-Security-Policy.
+    const def = (typeof window !== 'undefined' && window.PICSHARE_DEFAULT_LANG) ||
+      (document.documentElement && document.documentElement.getAttribute('data-default-lang')) || '';
     if (def && dict[def]) return def;
     const nav = (navigator.language || 'zh').toLowerCase();
     if (nav.startsWith('ko')) return 'ko';
@@ -242,7 +255,28 @@
     });
   }
 
-  global.i18n = { t, setLang, getLang, applyLang };
+  // renderLangSwitch fills the #lang-switch container and wires its
+  // buttons. It lives here (not in public.js) because the landing page
+  // must not load public.js — that script assumes a gallery page.
+  function renderLangSwitch() {
+    const el = document.getElementById('lang-switch');
+    if (!el) return;
+    const lang = getLang();
+    el.innerHTML = '<div class="lang-switch">' +
+      ['zh', 'ko', 'en'].map(code =>
+        '<button data-lang="' + code + '"' + (code === lang ? ' class="active"' : '') + '>' +
+        t('language_' + code) + '</button>'
+      ).join('') +
+      '</div>';
+    el.querySelectorAll('button').forEach(btn => {
+      btn.addEventListener('click', () => {
+        setLang(btn.dataset.lang);
+        location.reload();
+      });
+    });
+  }
+
+  global.i18n = { t, setLang, getLang, applyLang, renderLangSwitch };
 
   applyLang(getLang());
 })(window);

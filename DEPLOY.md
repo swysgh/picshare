@@ -71,6 +71,24 @@ sudo chmod 600 /etc/picshare.json
 
 **请保存 `admin_pass`！** 这是后台登录密码。
 
+#### 着陆页（可选）
+
+`/` 默认就是着陆页（全屏首屏 → 点“进入图库”跳 `/gallery`），上面那份配置不用改。要调整外观时在 JSON 里追加：
+
+```json
+  "landing_enabled": true,
+  "landing_title": "",
+  "landing_subtitle": "",
+  "landing_cta_text": "",
+  "landing_background": "",
+  "landing_background_portrait": "",
+  "landing_backdrop_opacity": 45,
+  "landing_remember": "30d",
+  "landing_version": 1
+```
+
+空值走默认（标题用 `site_title`、背景取第一个有封面相册的封面、文案走 i18n）。字段含义见 [README.md](README.md#配置说明)。想恢复“进站直接看相册列表”就把 `landing_enabled` 设成 `false` 重启。
+
 ### 2.4 systemd
 
 ```bash
