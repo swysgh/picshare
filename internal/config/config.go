@@ -407,6 +407,9 @@ func SaveSettings(path string, s Settings) error {
 		os.Remove(tmpName)
 		return fmt.Errorf("close temp config: %w", err)
 	}
+	// Keep the owner of the file being replaced: the service often runs as
+	// root while the operator edits the config as their own user.
+	chownLike(tmpName, path)
 	if err := os.Rename(tmpName, path); err != nil {
 		os.Remove(tmpName)
 		return fmt.Errorf("replace config: %w", err)
