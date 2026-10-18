@@ -27,8 +27,8 @@ func (h *AdminHandlers) Upload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if h.UploadLimitMB > 0 {
-		r.Body = http.MaxBytesReader(w, r.Body, int64(h.UploadLimitMB)<<20)
+	if limit := h.uploadLimitMB(); limit > 0 {
+		r.Body = http.MaxBytesReader(w, r.Body, int64(limit)<<20)
 	}
 
 	mr, err := r.MultipartReader()
@@ -95,6 +95,15 @@ func (h *AdminHandlers) Upload(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	fmt.Fprintf(w, `{"status":"ok","uploaded":%d,"album":%q,"results":%s}`, uploaded, album, mustMarshalResults(results))
+}
+
+// uploadLimitMB reads the live max_upload_mb for this request. A nil reader
+// means the deployment did not wire a limit (tests), which is "no limit".
+func (h *AdminHandlers) uploadLimitMB() int {
+	if h.UploadLimit == nil {
+		return 0
+	}
+	return h.UploadLimit()
 }
 
 // uploadErrText maps low-level write errors to stable client-facing text

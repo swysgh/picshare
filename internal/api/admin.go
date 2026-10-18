@@ -14,21 +14,200 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"unicode/utf8"
 
 	"github.com/disintegration/imaging"
+	"github.com/swys/picshare/internal/config"
 	"github.com/swys/picshare/internal/gallery"
 )
 
 type AdminHandlers struct {
-	PhotosDir     string
-	ThumbsDir     string
-	WebPrefix     string
-	UploadLimitMB int
-	GridSize      int
-	LightboxSize  int
+	PhotosDir    string
+	ThumbsDir    string
+	WebPrefix    string
+	GridSize     int
+	LightboxSize int
+	// UploadLimit reads the live max_upload_mb on every upload, so a value
+	// saved in the settings page applies without a restart. A nil func means
+	// "no limit" (older wiring / tests).
+	UploadLimit func() int
+	// Settings is the hot-reloadable config behind GET/POST
+	// /api/admin/settings; nil disables those two endpoints.
+	Settings SettingsStore
 	// mu serializes read-modify-write cycles on the per-album metadata
 	// files (.hidden/.order) across admin mutations.
 	mu sync.Mutex
+}
+
+// SettingsStore is the live configuration the settings page reads and writes.
+// main wires it to liveCfg, which persists the change and only then swaps the
+// in-memory config.
+type SettingsStore interface {
+	Settings() config.Settings
+	ApplySettings(config.Settings) error
+}
+
+// maxSettingsTextLen mirrors config.MaxTextLen so the API can reject an
+// oversized value before it reaches the config layer.
+const maxSettingsTextLen = config.MaxTextLen
+
+// GetSettings returns the admin-editable settings. The payload deliberately
+// has no admin_pass / admin_user / listen / directory fields (see
+// config.Settings).
+func (h *AdminHandlers) GetSettings(w http.ResponseWriter, r *http.Request) {
+	if h.Settings == nil {
+		settingsError(w, http.StatusServiceUnavailable, "设置接口未启用")
+		return
+	}
+	writeJSON(w, h.Settings.Settings())
+}
+
+// UpdateSettings validates and applies a settings form post. The whole
+// allowlisted field set must be present: a partial body would silently reset
+// the missing fields to their zero value (e.g. max_upload_mb=0 = unlimited).
+func (h *AdminHandlers) UpdateSettings(w http.ResponseWriter, r *http.Request) {
+	if h.Settings == nil {
+		settingsError(w, http.StatusServiceUnavailable, "设置接口未启用")
+		return
+	}
+	var raw map[string]json.RawMessage
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10))
+	if err := dec.Decode(&raw); err != nil {
+		settingsError(w, http.StatusBadRequest, "请求体不是合法的 JSON")
+		return
+	}
+	if msg := checkSettingsKeys(raw); msg != "" {
+		settingsError(w, http.StatusBadRequest, msg)
+		return
+	}
+	var s config.Settings
+	body, err := json.Marshal(raw)
+	if err != nil {
+		settingsError(w, http.StatusBadRequest, "请求体不是合法的 JSON")
+		return
+	}
+	if err := json.Unmarshal(body, &s); err != nil {
+		settingsError(w, http.StatusBadRequest, "字段类型不正确（数字字段请传数字）")
+		return
+	}
+	s.SiteTitle = strings.TrimSpace(s.SiteTitle)
+	s.LandingRemember = strings.TrimSpace(strings.ToLower(s.LandingRemember))
+	if n := utf8.RuneCountInString(s.SiteTitle); n > maxSettingsTextLen {
+		settingsError(w, http.StatusBadRequest, fmt.Sprintf("站点标题最长 %d 个字符（当前 %d）", maxSettingsTextLen, n))
+		return
+	}
+	if msg := checkLandingI18n(raw["landing_i18n"]); msg != "" {
+		settingsError(w, http.StatusBadRequest, msg)
+		return
+	}
+	s.LandingI18n = config.LandingI18n{
+		Title:    trimTexts(s.LandingI18n.Title),
+		Subtitle: trimTexts(s.LandingI18n.Subtitle),
+		CTA:      trimTexts(s.LandingI18n.CTA),
+	}
+	if msg := checkTexts("大标题", s.LandingI18n.Title); msg != "" {
+		settingsError(w, http.StatusBadRequest, msg)
+		return
+	}
+	if msg := checkTexts("副标题", s.LandingI18n.Subtitle); msg != "" {
+		settingsError(w, http.StatusBadRequest, msg)
+		return
+	}
+	if msg := checkTexts("进入提示文字", s.LandingI18n.CTA); msg != "" {
+		settingsError(w, http.StatusBadRequest, msg)
+		return
+	}
+	if s.LandingBackdropOpacity < 0 || s.LandingBackdropOpacity > 100 {
+		settingsError(w, http.StatusBadRequest, fmt.Sprintf("遮罩透明度必须在 0-100 之间（当前 %d）", s.LandingBackdropOpacity))
+		return
+	}
+	if _, err := config.ParseRemember(s.LandingRemember); err != nil {
+		settingsError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if s.MaxUploadMB < 0 {
+		settingsError(w, http.StatusBadRequest, fmt.Sprintf("单文件上传上限不能为负数（当前 %d；0 = 不限制）", s.MaxUploadMB))
+		return
+	}
+	if err := h.Settings.ApplySettings(s); err != nil {
+		log.Printf("update settings: %v", err)
+		settingsError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	// Echo the saved values: the response is what the form re-renders from,
+	// and it proves the write round-tripped through disk.
+	writeJSON(w, h.Settings.Settings())
+}
+
+// settingsError writes a JSON error body so the admin UI can show the server's
+// Chinese reason verbatim; http.Error's text/plain body would be swallowed by
+// the client's JSON error parser and degrade to "HTTP 400".
+func settingsError(w http.ResponseWriter, status int, msg string) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(status)
+	enc := json.NewEncoder(w)
+	enc.SetEscapeHTML(false)
+	_ = enc.Encode(map[string]string{"error": msg})
+}
+
+// checkSettingsKeys enforces the allowlist in both directions: no unknown
+// key may be sent (it could smuggle a field the UI must never touch), and no
+// allowlisted key may be omitted (see UpdateSettings).
+func checkSettingsKeys(raw map[string]json.RawMessage) string {
+	for k := range raw {
+		if !config.IsSettingsKey(k) {
+			return "不支持的字段: " + k
+		}
+	}
+	for _, k := range config.SettingsKeys {
+		if _, ok := raw[k]; !ok {
+			return "缺少字段: " + k
+		}
+	}
+	return ""
+}
+
+// checkLandingI18n rejects unknown group/language keys inside landing_i18n.
+// The struct decode would silently drop them, which would look like a
+// successful save that changed nothing.
+func checkLandingI18n(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var groups map[string]map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &groups); err != nil {
+		return "landing_i18n 必须是 {\"title\":{\"zh\":…}} 形式的对象"
+	}
+	for name, langs := range groups {
+		switch name {
+		case "title", "subtitle", "cta":
+		default:
+			return "landing_i18n 不支持的字段: " + name
+		}
+		for lang := range langs {
+			switch lang {
+			case "zh", "ko", "en":
+			default:
+				return "landing_i18n." + name + " 不支持的语言: " + lang
+			}
+		}
+	}
+	return ""
+}
+
+func trimTexts(t config.LandingTexts) config.LandingTexts {
+	trim := strings.TrimSpace
+	return config.LandingTexts{Zh: trim(t.Zh), Ko: trim(t.Ko), En: trim(t.En)}
+}
+
+func checkTexts(label string, t config.LandingTexts) string {
+	for _, lang := range config.Langs {
+		if n := utf8.RuneCountInString(t.For(lang)); n > maxSettingsTextLen {
+			return fmt.Sprintf("%s（%s）最长 %d 个字符（当前 %d）", label, lang, maxSettingsTextLen, n)
+		}
+	}
+	return ""
 }
 
 func (h *AdminHandlers) ListManage(w http.ResponseWriter, r *http.Request) {

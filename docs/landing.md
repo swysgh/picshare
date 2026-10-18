@@ -294,3 +294,36 @@ curl -s localhost:8080/album/尺寸测试 | grep -c photo-grid            # 1
 2. **渐入动画**：背景图 0.8s/延迟 0.2s、遮罩 0.6s/延迟 0.1s、提示区 0.5s/延迟 0.6s，文字仍是 0.4s。背景与遮罩用只改 `opacity` 的关键帧（`landing-fade-in` / `landing-veil-in`）：`landing-fade` 带 `translateY`，用在整屏图上会露出边缘；遮罩的终点值取自 `--veil-opacity`（由 `landing_backdrop_opacity` 注入），否则动画的 `both` 会覆盖配置值。`prefers-reduced-motion: reduce` 时全部 `animation: none`。
 3. **后台可选背景**：照片 hover 菜单新增「设为着陆页背景」→ `POST /api/admin/setlandingbg` → 原子写入 `photos/.landing_bg`（一行相对路径，不碰 `config.json`）。`main.go` 每次渲染着陆页时读该文件并解析成 `w=lightbox_size` 的 `/thumb` URL；照片被删/移走则 log 一次 warning 并回落到 `landing_background` / 默认封面。`GET /landing.html` 也走同一渲染路径，避免直链拿到旧背景。
 4. **`landing_remember=off`**：代码零改动，仅部署机配置加 `"landing_remember": "off"`。
+
+## 14. 实现备注（2026-10-18 第三轮：后台图形化配置）
+
+客户反馈后台改不了标题和着陆页文案，且英/韩文案写死在 `web/js/i18n.js`。本轮新增后台设置页。
+
+### 14.1 接口与持久化
+
+- `GET /api/admin/settings` → `internal/config.Settings`（白名单：`site_title`、`landing_enabled`、`landing_i18n`、`landing_backdrop_opacity`、`landing_remember`、`max_upload_mb`）。响应**不含** `admin_pass`/`admin_user`/`listen`/目录路径。
+- `POST /api/admin/settings` → 全字段必填；未知字段、缺字段、越界值一律 400 + 中文原因（JSON `{"error": "..."}`，便于前端 toast 原样展示）。`landing_i18n` 只接受 `title/subtitle/cta` × `zh/ko/en`。
+- 落盘走 `config.SaveSettings`：读原文 → `map[string]json.RawMessage` → 只覆盖白名单 key → `MarshalIndent` → 同目录临时文件 + `fsync` + `rename`，权限 0600。`admin_pass` 与未知字段字节级保留，所以设置页永远不可能丢掉或覆盖密钥。
+- 保存即生效：`main.liveCfg`（RWMutex）先写文件再换内存指针（写失败则内存不动），着陆页渲染、`/gallery` 的标题、上传上限都按请求读当前值。`index.html` 因此从 `max-age=3600` 改成 `no-store`。
+
+### 14.2 三语言覆盖与回退链
+
+```json
+"landing_i18n": {
+  "title":    {"zh": "", "ko": "", "en": ""},
+  "subtitle": {"zh": "", "ko": "", "en": ""},
+  "cta":      {"zh": "", "ko": "", "en": ""}
+}
+```
+
+旧的 `landing_title`/`landing_subtitle`/`landing_cta_text` 保留作回退，**不需要迁移现有配置**：某语言为空 → 旧单语言字段 → 仍为空 → `i18n.js` 字典兜底。标题的回退链最后落到 `site_title`（它同时是 `<title>` 与 `<h1>`，不能为空）。
+
+服务端把整份文案（已折叠旧字段）以 HTML 转义后的 JSON 注入 `<main data-landing-texts="...">`；marker `PICSHARE_LANDING_TITLE/SUBTITLE/CTA` 只提供 default_lang 的首屏文案（无 JS 时也合理）。`landing.js` 按 `i18n.getLang()` 覆盖 `<h1>`、副标题、进入提示与 `document.title`：副标题/提示即使取到空值也写入元素，再交给 `fillFallbacks()` 走字典——否则切到英/韩时会残留服务端渲染的中文。
+
+### 14.3 site_title 老 bug
+
+`index.html` 的 `<h1 data-i18n="site_title">` 一直会被 `i18n.js applyLang()` 用字典值（产品图库/제품 갤러리/Product Gallery）覆盖，配置里的 `site_title` 实际无效。现在服务端注入 `<html data-site-title="...">`，`t('site_title')` 优先读它，非空才回退字典。
+
+### 14.4 UI
+
+后台 header 新增「设置」按钮 → modal（复用 `#modal-backdrop`），三段：站点 / 着陆页（启用开关、大标题·副标题·进入提示各三语言输入框、遮罩透明度 0-100、记住进入 off/12h/7d/30d）/ 上传（单文件上限 MB，0 = 不限制）。表单 `novalidate`，越界值由前端给中文 toast（与服务端同规则），保存成功 toast「设置已保存」。配色沿用 `admin.css` 深色变量。

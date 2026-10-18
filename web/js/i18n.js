@@ -234,9 +234,22 @@
     return readStoredLang() || detectLang();
   }
 
+  // A configured site_title must beat the built-in dictionary: the server
+  // injects it into <html data-site-title>, and applyLang() used to overwrite
+  // that injected <h1>/<title> text with the hard-coded dictionary entry.
+  // getAttribute (not dataset) keeps this readable even if the attribute name
+  // ever gains a dash.
+  function injectedSiteTitle() {
+    const el = document.documentElement;
+    if (!el) return '';
+    return (el.getAttribute('data-site-title') || '').trim();
+  }
+
   function t(key, params) {
     const lang = getLang();
-    const s = (dict[lang] && dict[lang][key]) || (dict.zh[key]) || key;
+    let s = '';
+    if (key === 'site_title') s = injectedSiteTitle();
+    if (!s) s = (dict[lang] && dict[lang][key]) || (dict.zh[key]) || key;
     if (!params) return s;
     return s.replace(/\{(\w+)\}/g, (_, k) => (params[k] !== undefined ? params[k] : ''));
   }

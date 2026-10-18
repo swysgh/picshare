@@ -89,13 +89,21 @@ func main() {
 		LightboxSize: cfg.LightboxSize,
 	}
 	adm := &api.AdminHandlers{
-		PhotosDir:     cfg.PhotosDir,
-		ThumbsDir:     cfg.ThumbsDir,
-		WebPrefix:     cfg.WebPathPrefix,
-		UploadLimitMB: cfg.MaxUploadMB,
-		GridSize:      cfg.GridThumbSize,
-		LightboxSize:  cfg.LightboxSize,
+		PhotosDir:    cfg.PhotosDir,
+		ThumbsDir:    cfg.ThumbsDir,
+		WebPrefix:    cfg.WebPathPrefix,
+		GridSize:     cfg.GridThumbSize,
+		LightboxSize: cfg.LightboxSize,
 	}
+
+	// live is the single source of truth for every setting the admin page can
+	// change. Handlers read through Get() per request, so a save applies
+	// without a restart; ApplySettings writes the file first and only then
+	// swaps the pointer, so a failed write never leaves memory and disk out
+	// of sync.
+	live := &liveCfg{cfg: cfg, path: configPath}
+	adm.UploadLimit = func() int { return live.Get().MaxUploadMB }
+	adm.Settings = live
 
 	mux := http.NewServeMux()
 
@@ -123,6 +131,8 @@ func main() {
 	mux.Handle("POST /api/admin/sethidden", adminGuard(adm.SetHidden))
 	mux.Handle("POST /api/admin/setlandingbg", adminGuard(adm.SetLandingBg))
 	mux.Handle("POST /api/admin/reorder", adminGuard(adm.Reorder))
+	mux.Handle("GET /api/admin/settings", adminGuard(adm.GetSettings))
+	mux.Handle("POST /api/admin/settings", adminGuard(adm.UpdateSettings))
 
 	// Landing background: the admin's pick (photos/.landing_bg) wins, then
 	// an explicit landing_background, then the first album cover at lightbox
@@ -140,35 +150,29 @@ func main() {
 		}
 	}
 
-	webOpts := webui.Options{
-		DefaultLang:       cfg.DefaultLang,
-		SiteTitle:         cfg.SiteTitle,
-		LandingTitle:      cfg.LandingTitle,
-		LandingSubtitle:   cfg.LandingSubtitle,
-		LandingCTA:        cfg.LandingCTAText,
-		LandingBGPortrait: cfg.LandingBackgroundPortrait,
-		LandingBackdrop:   strconv.FormatFloat(float64(cfg.LandingBackdropOpacity)/100, 'f', -1, 64),
-	}
-	webHandler := webui.NewHandler(webOpts)
+	// The gallery shell and the landing page both carry injected config, and
+	// both must reflect a settings save immediately. NewHandler only builds a
+	// marker replacer, so rebuilding it per request is cheap (the landing page
+	// already did this for the background).
+	spa := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		webui.NewHandler(buildWebOpts(live.Get(), "")).ServeHTTP(w, r)
+	})
 
 	// serveLanding renders the landing page with a background resolved for
-	// this request. webui.NewHandler only bakes the markers in, so building
-	// one per landing view is cheap and keeps .landing_bg changes immediate.
+	// this request, so .landing_bg changes are immediate too.
 	serveLanding := func(w http.ResponseWriter, r *http.Request) {
-		opts := webOpts
-		opts.LandingBG = bgSource.url()
 		r.URL.Path = "/landing.html"
-		webui.NewHandler(opts).ServeHTTP(w, r)
+		webui.NewHandler(buildWebOpts(live.Get(), bgSource.url())).ServeHTTP(w, r)
 	}
 
 	// The landing routes must be registered before the "/" catch-all:
 	// "GET /{$}" is Go 1.22+'s exact-match pattern for "/" only, so it
 	// shadows the root of spaHandler without swallowing /gallery or
 	// /album/... (a more specific pattern always wins).
-	mux.HandleFunc("GET /enter", landingEnter(cfg))
+	mux.HandleFunc("GET /enter", landingEnter(live))
 	mux.HandleFunc("GET /landing.html", serveLanding)
-	mux.HandleFunc("GET /{$}", landingGate(cfg, webHandler, serveLanding))
-	mux.Handle("/", spaHandler(webHandler, cfg.WebPathPrefix))
+	mux.HandleFunc("GET /{$}", landingGate(live, spa, serveLanding))
+	mux.Handle("/", spaHandler(spa, cfg.WebPathPrefix))
 
 	srv := &http.Server{
 		Addr:              cfg.Listen,
@@ -198,6 +202,58 @@ func main() {
 	defer cancel()
 	if err := srv.Shutdown(ctx); err != nil {
 		logger.Printf("shutdown: %v", err)
+	}
+}
+
+// liveCfg is the process-wide configuration plus the write path for the admin
+// settings page. Every handler reads through Get(), so a saved setting applies
+// without a restart.
+type liveCfg struct {
+	mu   sync.RWMutex
+	cfg  *config.Config
+	path string
+}
+
+func (l *liveCfg) Get() *config.Config {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	return l.cfg
+}
+
+// Settings returns the admin-editable view of the live config.
+func (l *liveCfg) Settings() config.Settings { return l.Get().Settings() }
+
+// ApplySettings validates s, persists it to the config file and only then
+// swaps the in-memory config. The order matters: a failed write must leave the
+// process on the values that are still on disk.
+func (l *liveCfg) ApplySettings(s config.Settings) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	next, err := l.cfg.WithSettings(s)
+	if err != nil {
+		return err
+	}
+	if err := config.SaveSettings(l.path, next.Settings()); err != nil {
+		return err
+	}
+	l.cfg = next
+	return nil
+}
+
+// buildWebOpts snapshots the current config into the embedded-HTML options. It
+// runs per request (see main) so a settings save is visible on the next page
+// load.
+func buildWebOpts(c *config.Config, landingBG string) webui.Options {
+	return webui.Options{
+		DefaultLang:       c.DefaultLang,
+		SiteTitle:         c.SiteTitle,
+		LandingTitle:      c.LandingTitleFor(c.DefaultLang),
+		LandingSubtitle:   c.LandingSubtitleFor(c.DefaultLang),
+		LandingCTA:        c.LandingCTAFor(c.DefaultLang),
+		LandingTextsJSON:  c.LandingTextsJSON(),
+		LandingBG:         landingBG,
+		LandingBGPortrait: c.LandingBackgroundPortrait,
+		LandingBackdrop:   strconv.FormatFloat(float64(c.LandingBackdropOpacity)/100, 'f', -1, 64),
 	}
 }
 
@@ -273,10 +329,13 @@ func landingCookieValue(cfg *config.Config) string {
 // landingGate serves GET /. A visitor whose cookie carries the current
 // landing_version goes straight to the gallery; everyone else sees the
 // landing page. "?landing=1" forces the page (preview/demo). With
-// landing_enabled=false the gallery is served exactly as before. landing
-// renders landing.html with a background resolved for this request.
-func landingGate(cfg *config.Config, web http.Handler, landing http.HandlerFunc) http.HandlerFunc {
+// landing_enabled=false the gallery is served exactly as before. Both
+// switches are read from the live config, so turning the page off in the
+// admin settings applies to the next request. landing renders landing.html
+// with a background resolved for this request.
+func landingGate(live *liveCfg, web http.Handler, landing http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		cfg := live.Get()
 		if !cfg.LandingEnabled {
 			r.URL.Path = "/index.html"
 			web.ServeHTTP(w, r)
@@ -300,8 +359,9 @@ func landingGate(cfg *config.Config, web http.Handler, landing http.HandlerFunc)
 
 // landingEnter is the landing CTA target: it remembers the visit (unless
 // landing_remember=off) and redirects to the gallery either way.
-func landingEnter(cfg *config.Config) http.HandlerFunc {
+func landingEnter(live *liveCfg) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		cfg := live.Get()
 		if cfg.LandingRememberTTL > 0 {
 			http.SetCookie(w, &http.Cookie{
 				Name:     landingCookie,

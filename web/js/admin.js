@@ -52,7 +52,41 @@
     unhide: '取消隐藏',
     hidden_badge: '已隐藏',
     hidden_changed: '已更新',
+    settings: '设置',
+    settings_site: '站点',
+    settings_site_title: '站点标题',
+    settings_landing: '着陆页',
+    settings_landing_enabled: '启用着陆页',
+    settings_landing_title: '大标题',
+    settings_landing_subtitle: '副标题',
+    settings_landing_cta: '进入提示文字',
+    settings_opacity: '遮罩透明度 (0-100)',
+    settings_remember: '记住进入',
+    settings_upload: '上传',
+    settings_max_mb: '单文件上限 (MB，0 = 不限制)',
+    settings_saved: '设置已保存',
+    settings_load_failed: '读取设置失败',
+    settings_save_failed: '保存设置失败',
+    lang_zh: '中文',
+    lang_ko: '한국어',
+    lang_en: 'English',
+    invalid_opacity: '遮罩透明度必须是 0-100 的整数',
+    invalid_max_mb: '上传上限必须是非负整数（0 = 不限制）',
+    remember_off: '每次进入都显示',
+    remember_12h: '12 小时',
+    remember_7d: '7 天',
+    remember_30d: '30 天',
   };
+
+  // Landing copy can be overridden per language; the order matches the
+  // language switcher on the public pages.
+  const SETTINGS_LANGS = [
+    ['zh', 'lang_zh'],
+    ['ko', 'lang_ko'],
+    ['en', 'lang_en'],
+  ];
+  const REMEMBER_CHOICES = ['off', '12h', '7d', '30d'];
+  const TEXT_GROUPS = ['title', 'subtitle', 'cta'];
 
   let currentPath = null;
 
@@ -130,6 +164,130 @@
       throw new Error(msg);
     }
     return r.json();
+  }
+
+  // settingsTextGroup renders the three language inputs of one landing copy
+  // field (title / subtitle / cta). An empty input means "no override for this
+  // language": the server falls back to the legacy single-language field, then
+  // the page falls back to the i18n dictionary.
+  function settingsTextGroup(group, label, texts) {
+    const values = texts || {};
+    return `
+      <div class="settings-group">
+        <div class="settings-group-title">${escapeHtml(label)}</div>
+        <div class="settings-langs">
+          ${SETTINGS_LANGS.map(([code, key]) => `
+            <label>
+              <span>${escapeHtml(t(key))}</span>
+              <input type="text" name="landing_${group}_${code}" maxlength="200"
+                value="${escapeHtml(values[code] || '')}" autocomplete="off">
+            </label>`).join('')}
+        </div>
+      </div>`;
+  }
+
+  function openSettings() {
+    const backdrop = document.getElementById('modal-backdrop');
+    api('/api/admin/settings').then(s => {
+      const texts = s.landing_i18n || {};
+      backdrop.innerHTML = `
+        <div class="modal settings-modal">
+          <h3>${t('settings')}</h3>
+          <form id="settings-form" novalidate>
+            <section class="settings-section">
+              <h4>${t('settings_site')}</h4>
+              <div class="field">
+                <label>${t('settings_site_title')}</label>
+                <input type="text" name="site_title" maxlength="200"
+                  value="${escapeHtml(s.site_title || '')}" autocomplete="off">
+              </div>
+            </section>
+            <section class="settings-section">
+              <h4>${t('settings_landing')}</h4>
+              <label class="check-row">
+                <input type="checkbox" name="landing_enabled"${s.landing_enabled ? ' checked' : ''}>
+                <span>${t('settings_landing_enabled')}</span>
+              </label>
+              ${settingsTextGroup('title', t('settings_landing_title'), texts.title)}
+              ${settingsTextGroup('subtitle', t('settings_landing_subtitle'), texts.subtitle)}
+              ${settingsTextGroup('cta', t('settings_landing_cta'), texts.cta)}
+              <div class="settings-row">
+                <div class="field">
+                  <label>${t('settings_opacity')}</label>
+                  <input type="number" name="landing_backdrop_opacity" min="0" max="100" step="1"
+                    value="${s.landing_backdrop_opacity}">
+                </div>
+                <div class="field">
+                  <label>${t('settings_remember')}</label>
+                  <select name="landing_remember">
+                    ${REMEMBER_CHOICES.map(v =>
+                      `<option value="${v}"${v === s.landing_remember ? ' selected' : ''}>${escapeHtml(t('remember_' + v))}</option>`
+                    ).join('')}
+                  </select>
+                </div>
+              </div>
+            </section>
+            <section class="settings-section">
+              <h4>${t('settings_upload')}</h4>
+              <div class="field">
+                <label>${t('settings_max_mb')}</label>
+                <input type="number" name="max_upload_mb" min="0" step="1" value="${s.max_upload_mb}">
+              </div>
+            </section>
+            <div class="modal-actions">
+              <button type="button" class="cancel-btn">${t('cancel')}</button>
+              <button type="submit" class="primary">${t('save')}</button>
+            </div>
+          </form>
+        </div>`;
+      backdrop.classList.add('show');
+      const form = backdrop.querySelector('form');
+      const close = () => backdrop.classList.remove('show');
+      backdrop.querySelector('.cancel-btn').onclick = close;
+      backdrop.onclick = e => { if (e.target === backdrop) close(); };
+      form.onsubmit = e => {
+        e.preventDefault();
+        saveSettings(new FormData(form), close);
+      };
+      const first = form.querySelector('input[type="text"]');
+      if (first) first.focus();
+    }).catch(e => toast(t('settings_load_failed') + ': ' + e.message, 'error'));
+  }
+
+  function saveSettings(fd, close) {
+    // The same bounds the server enforces. The form is novalidate so these
+    // produce the Chinese toast instead of a native browser bubble; catching
+    // them here also avoids a round trip that could only fail.
+    const opacity = Number(fd.get('landing_backdrop_opacity'));
+    if (!Number.isInteger(opacity) || opacity < 0 || opacity > 100) {
+      return toast(t('invalid_opacity'), 'error');
+    }
+    const maxMB = Number(fd.get('max_upload_mb'));
+    if (!Number.isInteger(maxMB) || maxMB < 0) {
+      return toast(t('invalid_max_mb'), 'error');
+    }
+    const landingI18n = {};
+    TEXT_GROUPS.forEach(group => {
+      landingI18n[group] = {};
+      SETTINGS_LANGS.forEach(([code]) => {
+        landingI18n[group][code] = String(fd.get('landing_' + group + '_' + code) || '').trim();
+      });
+    });
+    api('/api/admin/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        site_title: String(fd.get('site_title') || '').trim(),
+        landing_enabled: fd.get('landing_enabled') !== null,
+        landing_i18n: landingI18n,
+        landing_backdrop_opacity: opacity,
+        landing_remember: String(fd.get('landing_remember') || ''),
+        max_upload_mb: maxMB
+      })
+    }).then(() => {
+      close();
+      toast(t('settings_saved'), 'success');
+    }).catch(e => toast(t('settings_save_failed') + ': ' + e.message, 'error'));
   }
 
   function getAlbumPath() {
@@ -573,6 +731,9 @@
         else window.open('/', '_blank');
       });
     }
+
+    const settingsBtn = document.getElementById('settings-btn');
+    if (settingsBtn) settingsBtn.addEventListener('click', openSettings);
   }
 
   document.addEventListener('DOMContentLoaded', () => {

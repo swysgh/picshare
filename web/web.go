@@ -22,9 +22,13 @@ type Options struct {
 	DefaultLang string
 	SiteTitle   string
 
-	LandingTitle      string
-	LandingSubtitle   string
-	LandingCTA        string
+	LandingTitle    string
+	LandingSubtitle string
+	LandingCTA      string
+	// LandingTextsJSON is the per-language landing copy as compact JSON,
+	// injected into landing.html's data-landing-texts attribute so the page
+	// can pick the right language without a round trip.
+	LandingTextsJSON  string
 	LandingBG         string
 	LandingBGPortrait string
 	LandingBackdrop   string
@@ -68,6 +72,11 @@ func NewHandler(opts Options) http.Handler {
 			// cached copy could be shown to a visitor whose cookie is
 			// already set, or keep a stale background URL alive.
 			w.Header().Set("Cache-Control", "no-store")
+		case p == "index.html":
+			// The gallery shell carries the injected site_title and the
+			// landing decision; a cached copy would keep showing the old
+			// title for up to an hour after a settings save.
+			w.Header().Set("Cache-Control", "no-store")
 		default:
 			w.Header().Set("Cache-Control", "public, max-age=3600")
 		}
@@ -101,6 +110,7 @@ func newReplacer(opts Options) *strings.Replacer {
 		"<!--PICSHARE_LANDING_TITLE-->", html.EscapeString(title),
 		"<!--PICSHARE_LANDING_SUBTITLE-->", html.EscapeString(opts.LandingSubtitle),
 		"<!--PICSHARE_LANDING_CTA-->", html.EscapeString(opts.LandingCTA),
+		"<!--PICSHARE_LANDING_TEXTS-->", html.EscapeString(opts.LandingTextsJSON),
 		"<!--PICSHARE_LANDING_BG-->", html.EscapeString(opts.LandingBG),
 		"<!--PICSHARE_LANDING_BG_PORTRAIT-->", html.EscapeString(opts.LandingBGPortrait),
 		"<!--PICSHARE_LANDING_BACKDROP-->", html.EscapeString(opts.LandingBackdrop),

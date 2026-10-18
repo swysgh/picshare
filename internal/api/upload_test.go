@@ -107,7 +107,7 @@ func TestUploadAtomicAndDetail(t *testing.T) {
 	}
 }
 
-// TestUploadSizeLimit: with UploadLimitMB set, an oversized body is
+// TestUploadSizeLimit: with a live upload limit set, an oversized body is
 // rejected and no partial file is left behind.
 func TestUploadSizeLimit(t *testing.T) {
 	dir := t.TempDir()
@@ -116,7 +116,8 @@ func TestUploadSizeLimit(t *testing.T) {
 	if err := os.MkdirAll(photos, 0755); err != nil {
 		t.Fatal(err)
 	}
-	h := &AdminHandlers{PhotosDir: photosRoot, UploadLimitMB: 1}
+	limit := 1
+	h := &AdminHandlers{PhotosDir: photosRoot, UploadLimit: func() int { return limit }}
 
 	// ~2MB of "image" payload in a .jpg-named part.
 	big := make([]byte, 2<<20)
