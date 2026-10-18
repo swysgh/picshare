@@ -357,6 +357,47 @@ func (h *AdminHandlers) SetCover(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]string{"status": "ok", "cover": "cover" + ext})
 }
 
+// SetLandingBg pins one photo as the landing page background. The choice is
+// stored in photos/.landing_bg (not config.json: that file holds the admin
+// credentials and an HTTP handler must not rewrite it) and re-read on every
+// landing render, so it applies without a restart.
+func (h *AdminHandlers) SetLandingBg(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Album string `json:"album"`
+		Photo string `json:"photo"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "bad json", 400)
+		return
+	}
+	if !validAlbumPath(req.Album) {
+		http.Error(w, "bad album", 400)
+		return
+	}
+	photo := filepath.Base(req.Photo)
+	if !gallery.IsImage(photo) {
+		http.Error(w, "bad photo", 400)
+		return
+	}
+	rel := req.Album + "/" + photo
+	src := filepath.Join(h.PhotosDir, filepath.FromSlash(rel))
+	if !withinRoot(h.PhotosDir, src) {
+		http.Error(w, "path traversal", 400)
+		return
+	}
+	if fi, err := os.Stat(src); err != nil || fi.IsDir() {
+		http.Error(w, "source not found", 404)
+		return
+	}
+	if err := gallery.WriteLandingBg(h.PhotosDir, rel); err != nil {
+		log.Printf("setlandingbg %s: %v", rel, err)
+		http.Error(w, "save landing background failed", 500)
+		return
+	}
+	gallery.InvalidateScan()
+	writeJSON(w, map[string]string{"status": "ok", "photo": rel})
+}
+
 // Reorder persists a manual child-directory order for an album ("" = root).
 // The names slice must list existing subdirectory names of that album.
 func (h *AdminHandlers) Reorder(w http.ResponseWriter, r *http.Request) {

@@ -59,6 +59,7 @@ mkdir -p photos/主力产品
 
 ```
 photos/                          # 配置中的 photos_dir
+├── .landing_bg                  # 可选，后台「设为着陆页背景」选中的照片（相对路径）
 ├── 主力产品/
 │   ├── cover.jpg                # 封面（约定）
 │   ├── description.txt          # 可选，相册描述
@@ -114,6 +115,7 @@ picshare                         # 二进制
 - `POST /api/admin/delete` — 删除（文件/子目录；`paths:["."]` 删除整个相册）
 - `POST /api/admin/setcover` — 设封面
 - `POST /api/admin/sethidden` — 切换照片隐藏状态（`{album, photo, hidden}`）
+- `POST /api/admin/setlandingbg` — 设为着陆页背景（`{album, photo}`，写入 `photos/.landing_bg`）
 - `POST /api/admin/reorder` — 保存子文件夹手动顺序（`{album, names:[...]}`）
 
 ## 配置说明
@@ -136,8 +138,8 @@ picshare                         # 二进制
   "landing_enabled": true,          // 着陆页总开关；false = "/" 直接进相册列表
   "landing_title": "",              // 空 = 用 site_title
   "landing_subtitle": "",           // 空 = 用 i18n 的 landing_subtitle
-  "landing_cta_text": "",           // 空 = 用 i18n 的 landing_enter
-  "landing_background": "",         // 横版背景图 URL；空 = 取第一个有封面相册的封面（w=1600）
+  "landing_cta_text": "",           // 着陆页底部提示文案；空 = 用 i18n 的 landing_enter_hint
+  "landing_background": "",         // 横版背景图 URL；后台选过背景时以 .landing_bg 为准；空 = 取第一个有封面相册的封面（w=1600）
   "landing_background_portrait": "",// 竖版背景图 URL；空 = 回落横版
   "landing_backdrop_opacity": 45,   // 遮罩不透明度 0-100
   "landing_remember": "30d",        // off / 12h / 7d / 30d：进入后多久不再显示

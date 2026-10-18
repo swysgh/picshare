@@ -23,7 +23,17 @@
     });
   }
 
+  // The whole page is the call to action (there is no button). Clicks on the
+  // language switcher must only switch the language, so they are skipped.
+  function initWholePageClick() {
+    document.addEventListener('click', e => {
+      if (e.target.closest('#lang-switch')) return;
+      location.href = '/enter';
+    });
+  }
+
   fillFallbacks();
   window.i18n.renderLangSwitch();
   initEnterKey();
+  initWholePageClick();
 })();

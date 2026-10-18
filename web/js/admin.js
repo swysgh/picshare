@@ -8,6 +8,7 @@
     delete: '删除',
     rename: '重命名',
     set_cover: '设为封面',
+    set_landing_bg: '设为着陆页背景',
     selected: '已选 {n} 项',
     confirm_delete: '确认删除？此操作不可恢复。',
     confirm_delete_selected: '确认删除所选 {n} 项？',
@@ -26,6 +27,7 @@
     deleted: '已删除',
     created: '已创建',
     cover_set: '封面已设置',
+    landing_bg_set: '着陆页背景已设置',
     renamed: '已重命名',
     error: '出错了',
     ok: '确定',
@@ -279,6 +281,7 @@
         <div class="check">✓</div>
         <div class="row-actions">
           <button data-action="setcover">${t('set_cover')}</button>
+          <button data-action="setlandingbg">${t('set_landing_bg')}</button>
           <button data-action="togglehide">${p.hidden ? t('unhide') : t('hide')}</button>
           <button data-action="rename">${t('rename')}</button>
           <button data-action="delete">${t('delete')}</button>
@@ -410,6 +413,15 @@
           }).then(() => {
             toast(t('cover_set'), 'success');
             renderManage(album);
+          }).catch(e => toast(e.message, 'error'));
+        } else if (action === 'setlandingbg') {
+          e.stopPropagation();
+          api('/api/admin/setlandingbg', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ album, photo: name })
+          }).then(() => {
+            toast(t('landing_bg_set'), 'success');
           }).catch(e => toast(e.message, 'error'));
         } else if (action === 'togglehide') {
           e.stopPropagation();

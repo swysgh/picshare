@@ -13,6 +13,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -120,39 +121,53 @@ func main() {
 	mux.Handle("POST /api/admin/delete", adminGuard(adm.Delete))
 	mux.Handle("POST /api/admin/setcover", adminGuard(adm.SetCover))
 	mux.Handle("POST /api/admin/sethidden", adminGuard(adm.SetHidden))
+	mux.Handle("POST /api/admin/setlandingbg", adminGuard(adm.SetLandingBg))
 	mux.Handle("POST /api/admin/reorder", adminGuard(adm.Reorder))
 
-	// Landing background: explicit config wins; otherwise the first album
-	// cover is used at lightbox size (see defaultLandingBackground).
-	landingBG := ""
+	// Landing background: the admin's pick (photos/.landing_bg) wins, then
+	// an explicit landing_background, then the first album cover at lightbox
+	// size (see defaultLandingBackground). Only .landing_bg is resolved per
+	// request; the rest comes from the config loaded at startup.
+	bgSource := &landingBGSource{cfg: cfg, logger: logger}
+	bgLog := "-"
 	if cfg.LandingEnabled {
-		landingBG = cfg.LandingBackground
-		if landingBG == "" {
-			landingBG = defaultLandingBackground(cfg, logger)
+		bgSource.fallback = cfg.LandingBackground
+		if bgSource.fallback == "" {
+			bgSource.fallback = defaultLandingBackground(cfg, logger)
+		}
+		if bg := bgSource.url(); bg != "" {
+			bgLog = bg
 		}
 	}
-	bgLog := landingBG
-	if bgLog == "" {
-		bgLog = "-"
-	}
 
-	webHandler := webui.NewHandler(webui.Options{
+	webOpts := webui.Options{
 		DefaultLang:       cfg.DefaultLang,
 		SiteTitle:         cfg.SiteTitle,
 		LandingTitle:      cfg.LandingTitle,
 		LandingSubtitle:   cfg.LandingSubtitle,
 		LandingCTA:        cfg.LandingCTAText,
-		LandingBG:         landingBG,
 		LandingBGPortrait: cfg.LandingBackgroundPortrait,
 		LandingBackdrop:   strconv.FormatFloat(float64(cfg.LandingBackdropOpacity)/100, 'f', -1, 64),
-	})
+	}
+	webHandler := webui.NewHandler(webOpts)
+
+	// serveLanding renders the landing page with a background resolved for
+	// this request. webui.NewHandler only bakes the markers in, so building
+	// one per landing view is cheap and keeps .landing_bg changes immediate.
+	serveLanding := func(w http.ResponseWriter, r *http.Request) {
+		opts := webOpts
+		opts.LandingBG = bgSource.url()
+		r.URL.Path = "/landing.html"
+		webui.NewHandler(opts).ServeHTTP(w, r)
+	}
 
 	// The landing routes must be registered before the "/" catch-all:
 	// "GET /{$}" is Go 1.22+'s exact-match pattern for "/" only, so it
 	// shadows the root of spaHandler without swallowing /gallery or
 	// /album/... (a more specific pattern always wins).
 	mux.HandleFunc("GET /enter", landingEnter(cfg))
-	mux.HandleFunc("GET /{$}", landingGate(cfg, webHandler))
+	mux.HandleFunc("GET /landing.html", serveLanding)
+	mux.HandleFunc("GET /{$}", landingGate(cfg, webHandler, serveLanding))
 	mux.Handle("/", spaHandler(webHandler, cfg.WebPathPrefix))
 
 	srv := &http.Server{
@@ -258,8 +273,9 @@ func landingCookieValue(cfg *config.Config) string {
 // landingGate serves GET /. A visitor whose cookie carries the current
 // landing_version goes straight to the gallery; everyone else sees the
 // landing page. "?landing=1" forces the page (preview/demo). With
-// landing_enabled=false the gallery is served exactly as before.
-func landingGate(cfg *config.Config, web http.Handler) http.HandlerFunc {
+// landing_enabled=false the gallery is served exactly as before. landing
+// renders landing.html with a background resolved for this request.
+func landingGate(cfg *config.Config, web http.Handler, landing http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !cfg.LandingEnabled {
 			r.URL.Path = "/index.html"
@@ -267,8 +283,7 @@ func landingGate(cfg *config.Config, web http.Handler) http.HandlerFunc {
 			return
 		}
 		if r.URL.Query().Get("landing") == "1" {
-			r.URL.Path = "/landing.html"
-			web.ServeHTTP(w, r)
+			landing(w, r)
 			return
 		}
 		if cfg.LandingRememberTTL > 0 {
@@ -279,8 +294,7 @@ func landingGate(cfg *config.Config, web http.Handler) http.HandlerFunc {
 				return
 			}
 		}
-		r.URL.Path = "/landing.html"
-		web.ServeHTTP(w, r)
+		landing(w, r)
 	}
 }
 
@@ -301,6 +315,46 @@ func landingEnter(cfg *config.Config) http.HandlerFunc {
 		w.Header().Set("Cache-Control", "no-store")
 		http.Redirect(w, r, "/gallery", http.StatusFound)
 	}
+}
+
+// landingBGSource resolves the landing page background for a render. The
+// fallback (landing_background, else the first album cover) is resolved once
+// at startup; photos/.landing_bg is re-read per request so a pick made in the
+// admin UI applies without a restart.
+type landingBGSource struct {
+	cfg      *config.Config
+	fallback string
+	logger   *log.Logger
+
+	mu sync.Mutex
+	// warned is the last .landing_bg value already reported as unusable, so
+	// a deleted background logs once instead of on every page view.
+	warned string
+}
+
+func (s *landingBGSource) url() string {
+	p := gallery.ReadLandingBg(s.cfg.PhotosDir)
+	if p == "" {
+		return s.fallback
+	}
+	u, ok := gallery.LandingBgThumbURL(s.cfg.PhotosDir, p, gallery.Options{
+		WebPrefix:    s.cfg.WebPathPrefix,
+		GridSize:     s.cfg.GridThumbSize,
+		LightboxSize: s.cfg.LightboxSize,
+	})
+	s.mu.Lock()
+	switch {
+	case ok:
+		s.warned = ""
+	case p != s.warned:
+		s.warned = p
+		s.logger.Printf("landing background: .landing_bg 指向的照片不可用（%s），回落到默认封面", p)
+	}
+	s.mu.Unlock()
+	if !ok {
+		return s.fallback
+	}
+	return u
 }
 
 // defaultLandingBackground picks the first album cover as the landing

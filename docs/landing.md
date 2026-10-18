@@ -149,8 +149,8 @@ mux.Handle("/", spaHandler(webHandler))                    // 保持最后
 | `landing_enabled` | 总开关。**默认 true**（合并即生效）；想"合并但不生效"就在部署机配置里显式写 false |
 | `landing_title` | 空 → 用 i18n 的 `site_title`（同时用于 `<title>`） |
 | `landing_subtitle` | 空 → 用 i18n 的 `landing_subtitle` |
-| `landing_cta_text` | 空 → 用 i18n 的 `landing_enter` |
-| `landing_background` | 横版背景。空 → 自动取第一个有封面相册的 `cover_thumb`（`w=1600`） |
+| `landing_cta_text` | 底部提示文案（无按钮 CTA 后仍复用此字段）；空 → 用 i18n 的 `landing_enter_hint` |
+| `landing_background` | 横版背景。后台选过背景（`photos/.landing_bg`）时以它为准；都为空 → 自动取第一个有封面相册的 `cover_thumb`（`w=1600`） |
 | `landing_background_portrait` | 竖版背景。空 → 回落横版 |
 | `landing_backdrop_opacity` | 遮罩不透明度 0–100，越界带中文原因非 0 退出 |
 | `landing_remember` | `off` / `12h` / `7d` / `30d`。**Go 的 `time.ParseDuration` 不认 `d`，要自己写解析**；非法值带中文原因非 0 退出 |
@@ -287,3 +287,10 @@ curl -s localhost:8080/album/尺寸测试 | grep -c photo-grid            # 1
 - 背景图 `<img>` 只用 `srcset`、不写 `src`：空值时浏览器不会去请求当前文档（空 `src` 会被当成页面 URL），也就不用为“没有背景”造占位图。
 - `landing_remember=off` 时连已存在的旧 cookie 也不认，保证“每次进首页都显示”。
 - `landing.html` 走 `Cache-Control: no-store`，避免缓存里的 200 盖住 cookie 判定或留下过期的背景 URL。
+
+## 13. 实现备注（2026-10-18 第二轮：客户反馈 4 项）
+
+1. **CTA 去按钮化**：`<a class="cta">` 已删除，改为底部 `.enter-hint`（SVG 线框鼠标 + 小字），整页由 `landing.js` 的 `initWholePageClick()` 负责跳 `/enter`；语言切换按钮的点击被跳过。`main.landing` 加 `cursor: pointer` 提示整页可点。小字仍可由 `landing_cta_text` 覆盖，空值走 i18n `landing_enter_hint`。
+2. **渐入动画**：背景图 0.8s/延迟 0.2s、遮罩 0.6s/延迟 0.1s、提示区 0.5s/延迟 0.6s，文字仍是 0.4s。背景与遮罩用只改 `opacity` 的关键帧（`landing-fade-in` / `landing-veil-in`）：`landing-fade` 带 `translateY`，用在整屏图上会露出边缘；遮罩的终点值取自 `--veil-opacity`（由 `landing_backdrop_opacity` 注入），否则动画的 `both` 会覆盖配置值。`prefers-reduced-motion: reduce` 时全部 `animation: none`。
+3. **后台可选背景**：照片 hover 菜单新增「设为着陆页背景」→ `POST /api/admin/setlandingbg` → 原子写入 `photos/.landing_bg`（一行相对路径，不碰 `config.json`）。`main.go` 每次渲染着陆页时读该文件并解析成 `w=lightbox_size` 的 `/thumb` URL；照片被删/移走则 log 一次 warning 并回落到 `landing_background` / 默认封面。`GET /landing.html` 也走同一渲染路径，避免直链拿到旧背景。
+4. **`landing_remember=off`**：代码零改动，仅部署机配置加 `"landing_remember": "off"`。

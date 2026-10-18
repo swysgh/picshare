@@ -55,7 +55,7 @@
       hint_sort: '提示：目录名前缀数字可控制排序，如 01.主力产品',
       landing_subtitle: '每一件产品，都值得被认真看见',
       landing_enter: '进入图库',
-      landing_enter_hint: '按 Enter 也可进入'
+      landing_enter_hint: '鼠标点击进入'
     },
     ko: {
       site_title: '제품 갤러리',
@@ -110,7 +110,7 @@
       hint_sort: '팁: 디렉토리 이름 앞에 숫자를 붙이면 정렬됩니다 (예: 01.주력제품)',
       landing_subtitle: '모든 제품을 한눈에',
       landing_enter: '갤러리 들어가기',
-      landing_enter_hint: 'Enter 키로도 들어갈 수 있습니다'
+      landing_enter_hint: '클릭하여 들어가기'
     },
     en: {
       site_title: 'Product Gallery',
@@ -165,7 +165,7 @@
       hint_sort: 'Tip: prefix a directory name with a number to sort, e.g. 01.Main',
       landing_subtitle: 'Every product, worth a closer look',
       landing_enter: 'Enter Gallery',
-      landing_enter_hint: 'Press Enter to enter'
+      landing_enter_hint: 'Click anywhere to enter'
     }
   };
 

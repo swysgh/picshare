@@ -13,12 +13,19 @@
     <source media="(orientation: portrait)" srcset="<!--PICSHARE_LANDING_BG_PORTRAIT-->">
     <img srcset="<!--PICSHARE_LANDING_BG-->" sizes="100vw" alt="">
   </picture>
-  <div class="veil" style="opacity:<!--PICSHARE_LANDING_BACKDROP-->"></div>
+  <div class="veil" style="--veil-opacity:<!--PICSHARE_LANDING_BACKDROP-->"></div>
   <div class="hero">
     <h1><!--PICSHARE_LANDING_TITLE--></h1>
     <p class="sub" data-i18n-fallback="landing_subtitle"><!--PICSHARE_LANDING_SUBTITLE--></p>
-    <a class="cta" href="/enter"><span data-i18n-fallback="landing_enter"><!--PICSHARE_LANDING_CTA--></span><span class="arrow" aria-hidden="true">→</span></a>
-    <span class="hint" data-i18n-fallback="landing_enter_hint"></span>
+  </div>
+  <!-- The whole page is the call to action; this block is only the visual
+       hint (no button, no link). -->
+  <div class="enter-hint" aria-hidden="true">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+      <rect x="7" y="2.5" width="10" height="19" rx="5"/>
+      <path d="M12 6.5v4"/>
+    </svg>
+    <span data-i18n-fallback="landing_enter_hint"><!--PICSHARE_LANDING_CTA--></span>
   </div>
   <div class="lang" id="lang-switch"></div>
 </main>

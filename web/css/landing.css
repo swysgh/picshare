@@ -16,6 +16,8 @@ main.landing {
   display: flex;
   align-items: center;
   justify-content: center;
+  /* The whole page is clickable (see landing.js), so say so. */
+  cursor: pointer;
   /* Fallback when no background image resolves: a plain dark gradient,
      never a white page. */
   background:
@@ -35,13 +37,19 @@ main.landing {
   display: block;
   object-fit: cover;
   object-position: center;
+  /* Fades in slightly after the text so the page layers in instead of
+     snapping. Opacity only: a transform here would slide the full-bleed
+     image and expose the gradient along one edge. */
+  animation: landing-fade-in 0.8s ease 0.2s both;
 }
 
-/* Opacity comes from landing_backdrop_opacity (inline style). */
+/* Opacity comes from landing_backdrop_opacity, injected as --veil-opacity
+   so the fade can end on the configured value instead of overriding it. */
 .veil {
   position: absolute;
   inset: 0;
   pointer-events: none;
+  opacity: var(--veil-opacity, 1);
   background: linear-gradient(
     180deg,
     rgba(0, 0, 0, 0.9) 0%,
@@ -49,6 +57,7 @@ main.landing {
     rgba(0, 0, 0, 0.35) 65%,
     rgba(0, 0, 0, 0.9) 100%
   );
+  animation: landing-veil-in 0.6s ease 0.1s both;
 }
 
 .hero {
@@ -79,45 +88,39 @@ main.landing {
   color: rgba(255, 255, 255, 0.78);
 }
 
-.hero .sub:empty,
-.hero .hint:empty {
+.hero .sub:empty {
   display: none;
 }
 
-.hero .cta {
-  display: inline-flex;
+/* Button-less call to action: a hairline mouse outline plus one small line
+   of copy, pinned near the bottom of the viewport. It is decoration only —
+   pointer-events stay off so the click lands on the page handler. */
+.enter-hint {
+  position: absolute;
+  bottom: 48px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 0.55rem;
-  margin-top: 2.4rem;
-  padding: 0.85rem 2.4rem;
-  border: 1px solid rgba(255, 255, 255, 0.35);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.06);
-  color: #fff;
-  font-size: 0.95rem;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  transition: transform 0.2s ease, background 0.2s ease, border-color 0.2s ease;
+  pointer-events: none;
+  animation: landing-fade-in 0.5s ease 0.6s both;
 }
 
-.hero .cta:hover {
-  transform: scale(1.05);
-  background: rgba(255, 255, 255, 0.14);
-  border-color: rgba(255, 255, 255, 0.65);
-  text-decoration: none;
+.enter-hint svg {
+  width: 28px;
+  height: 28px;
+  margin-bottom: 6px;
+  color: rgba(255, 255, 255, 0.8);
+  opacity: 0.5;
 }
 
-.hero .cta .arrow {
-  animation: landing-pulse 1.8s ease-in-out infinite;
-}
-
-.hero .hint {
-  display: block;
-  margin-top: 1rem;
+.enter-hint span {
   font-size: 0.72rem;
   letter-spacing: 0.16em;
   text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.42);
+  color: rgba(255, 255, 255, 0.45);
 }
 
 .lang {
@@ -148,18 +151,25 @@ main.landing {
   to { opacity: 1; transform: none; }
 }
 
-@keyframes landing-pulse {
-  0%, 100% { opacity: 0.65; transform: translateX(0); }
-  50% { opacity: 1; transform: translateX(4px); }
+/* Opacity-only variant for full-bleed layers (see .landing-bg img). */
+@keyframes landing-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes landing-veil-in {
+  from { opacity: 0; }
+  to { opacity: var(--veil-opacity, 1); }
 }
 
 @media (max-width: 600px) {
   .lang { right: 12px; bottom: 12px; }
-  .hero .cta { padding: 0.75rem 1.8rem; font-size: 0.85rem; }
+  .enter-hint { bottom: 28px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .hero,
-  .hero .cta .arrow { animation: none; }
-  .hero .cta { transition: none; }
+  .landing-bg img,
+  .veil,
+  .enter-hint { animation: none; }
 }

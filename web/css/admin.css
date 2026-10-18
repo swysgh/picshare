@@ -259,6 +259,10 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   right: 4px;
   display: none;
   gap: 4px;
+  /* Five actions can be wider than a 180px tile; wrap instead of letting
+     the tile's overflow:hidden clip the leftmost button. */
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .photo-tile:hover .row-actions { display: flex; }
