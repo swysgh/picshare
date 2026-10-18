@@ -356,7 +356,7 @@
           const fd = new FormData();
           fd.append('files', f, f.name);
           const xhr = new XMLHttpRequest();
-          xhr.open('POST', `/api/admin/upload?album=${encodeURIComponent(album)}`);
+          xhr.open('POST', `/api/admin/upload?album=${encodeURIComponent(album)}&skip_existing=1`);
           xhr.setRequestHeader('Accept', 'application/json');
           xhr.onload = () => {
             try {
@@ -676,7 +676,10 @@
 
   function doUpload(album, files) {
     uploadFiles(album, files).then(r => {
-      toast(t('upload_done') + ' (' + r.uploaded + ')', 'success');
+      const skipped = (r.results || []).filter(x => x.status === 'skipped').length;
+      let msg = t('upload_done') + ' (' + r.uploaded + ')';
+      if (skipped > 0) msg += ' · ' + t('upload_skipped', { n: skipped });
+      toast(msg, 'success');
       renderManage(album);
     }).catch(e => toast(t('upload_failed') + ': ' + e.message, 'error'));
   }

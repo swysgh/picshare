@@ -27,6 +27,8 @@ func (h *AdminHandlers) Upload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	skipExisting := r.URL.Query().Get("skip_existing") == "1"
+
 	if limit := h.uploadLimitMB(); limit > 0 {
 		r.Body = http.MaxBytesReader(w, r.Body, int64(limit)<<20)
 	}
@@ -71,6 +73,12 @@ func (h *AdminHandlers) Upload(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		dst := filepath.Join(target, name)
+		if skipExisting {
+			if _, err := os.Stat(dst); err == nil {
+				results = append(results, fileResult{Name: name, Status: "skipped", Error: "already exists"})
+				continue
+			}
+		}
 		n, err := writeFileAtomically(dst, part)
 		part.Close()
 		if err != nil {
@@ -85,6 +93,13 @@ func (h *AdminHandlers) Upload(w http.ResponseWriter, r *http.Request) {
 		}
 		uploaded++
 		results = append(results, fileResult{Name: name, Status: "ok"})
+		if !skipExisting {
+			gallery.InvalidateScan()
+		}
+	}
+	// With skip_existing the scanner cache only needs one invalidation for
+	// the whole batch, not one per file.
+	if skipExisting && uploaded > 0 {
 		gallery.InvalidateScan()
 	}
 	if uploaded == 0 {
