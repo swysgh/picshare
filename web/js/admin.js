@@ -59,7 +59,7 @@
     settings_landing_enabled: '启用着陆页',
     settings_landing_title: '大标题',
     settings_landing_subtitle: '副标题',
-    settings_landing_cta: '进入提示文字',
+    settings_landing_cta: '进入提示文字（如“鼠标点击进入”）',
     settings_opacity: '遮罩透明度 (0-100)',
     settings_remember: '记住进入',
     settings_upload: '上传',

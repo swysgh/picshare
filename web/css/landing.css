@@ -130,6 +130,14 @@ main.landing {
   z-index: 1;
 }
 
+/* 竖排，避免与底部 enter-hint 在窄屏上横向竞争 */
+.lang .lang-switch {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-end;
+}
+
 .lang .lang-switch button {
   background: rgba(0, 0, 0, 0.28);
   border-color: rgba(255, 255, 255, 0.22);
