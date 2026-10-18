@@ -321,32 +321,68 @@
     return html;
   }
 
-  function setProgress(p) {
-    const bar = document.getElementById('progress');
-    bar.style.width = (p * 100) + '%';
-    if (p >= 1) setTimeout(() => bar.style.width = '0%', 300);
-  }
-
   function uploadFiles(album, files) {
+    // Upload N files in parallel, one XHR per file. The server caps
+    // concurrent disk writes to 4, so 20 in-flight requests keep the
+    // network pipe full without thrashing the HDD.
+    const PARALLEL = 20;
     return new Promise((resolve, reject) => {
-      const fd = new FormData();
-      for (const f of files) fd.append('files', f, f.name);
-      const xhr = new XMLHttpRequest();
-      xhr.open('POST', `/api/admin/upload?album=${encodeURIComponent(album)}`);
-      xhr.setRequestHeader('Accept', 'application/json');
-      xhr.upload.onprogress = e => {
-        if (e.lengthComputable) setProgress(e.loaded / e.total);
-      };
-      xhr.onload = () => {
-        if (xhr.status >= 200 && xhr.status < 300) {
-          try { resolve(JSON.parse(xhr.responseText)); }
-          catch { resolve({}); }
-        } else {
-          reject(new Error('HTTP ' + xhr.status));
+      const total = files.length;
+      if (total === 0) return resolve({ uploaded: 0, results: [] });
+      const results = new Array(total);
+      let done = 0, uploaded = 0, failed = 0;
+      let next = 0;
+
+      function setProgress(p) {
+        const bar = document.getElementById('progress');
+        bar.style.width = (p * 100) + '%';
+        if (p >= 1) setTimeout(() => bar.style.width = '0%', 300);
+      }
+
+      function finish() {
+        if (++done === total) {
+          if (uploaded === 0 && failed > 0) {
+            reject(new Error(t('upload_failed')));
+          } else {
+            resolve({ uploaded, results: results.filter(Boolean) });
+          }
         }
-      };
-      xhr.onerror = () => reject(new Error('network error'));
-      xhr.send(fd);
+      }
+
+      function launch() {
+        while (next < total && (next - done) < PARALLEL) {
+          const i = next++;
+          const f = files[i];
+          const fd = new FormData();
+          fd.append('files', f, f.name);
+          const xhr = new XMLHttpRequest();
+          xhr.open('POST', `/api/admin/upload?album=${encodeURIComponent(album)}`);
+          xhr.setRequestHeader('Accept', 'application/json');
+          xhr.onload = () => {
+            try {
+              const r = JSON.parse(xhr.responseText);
+              results[i] = r.results && r.results[0] ? r.results[0] : { name: f.name, status: xhr.status < 300 ? 'ok' : 'failed' };
+              if (r.uploaded > 0) uploaded++;
+              else failed++;
+            } catch {
+              results[i] = { name: f.name, status: xhr.status < 300 ? 'ok' : 'failed' };
+              if (xhr.status < 300) uploaded++; else failed++;
+            }
+            setProgress(done / total);
+            finish();
+            launch();
+          };
+          xhr.onerror = () => {
+            results[i] = { name: f.name, status: 'failed', error: 'network error' };
+            failed++;
+            setProgress(done / total);
+            finish();
+            launch();
+          };
+          xhr.send(fd);
+        }
+      }
+      launch();
     });
   }
 

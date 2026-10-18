@@ -123,10 +123,17 @@ func mustMarshalResults(results any) string {
 	return string(b)
 }
 
+var uploadWriteSem = make(chan struct{}, 4)
+
 // writeFileAtomically streams r into dst+".part", syncs, closes (checking
 // the close error), then renames into place. On any failure the temp file
 // is removed, so a half-written file never enters the album.
+// A semaphore (capacity 4) caps concurrent disk writes so 20 parallel HTTP
+// uploads don't turn into random I/O thrash on HDD.
 func writeFileAtomically(dst string, r io.Reader) (int64, error) {
+	uploadWriteSem <- struct{}{}
+	defer func() { <-uploadWriteSem }()
+
 	part := dst + ".part"
 	out, err := os.Create(part)
 	if err != nil {
