@@ -24,22 +24,12 @@
     return g[lang].trim();
   }
 
-  // Overwrite the server-rendered default_lang copy with the visitor's
-  // language. Values that are still empty fall through to the dictionary in
-  // fillFallbacks().
+  // The page no longer renders a title/subtitle; only the enter-hint copy
+  // is configurable. The title/subtitle groups in landing_i18n are still
+  // accepted by the API (backward compat) but have no visible target.
   function applyTexts(texts) {
     if (!texts) return;
     const lang = window.i18n.getLang();
-    const title = pick(texts, 'title', lang);
-    if (title) {
-      const h1 = document.getElementById('landing-title');
-      if (h1) h1.textContent = title;
-      document.title = title;
-    }
-    // Subtitle and CTA are written even when the value is empty: an empty
-    // override for the current language must fall through to the dictionary,
-    // not keep the default_language text the server rendered into the element.
-    setText('landing-subtitle', pick(texts, 'subtitle', lang));
     setText('landing-cta', pick(texts, 'cta', lang));
   }
 

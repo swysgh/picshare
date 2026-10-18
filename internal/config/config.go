@@ -150,7 +150,7 @@ func Default() *Config {
 		AdminUser:        "admin",
 		AdminPass:        "admin",
 		SiteTitle:        "Product Gallery",
-		DefaultLang:      "zh",
+		DefaultLang:      "ko",
 		GridThumbSize:    480,
 		LightboxSize:     1600,
 		EnableExifRotate: true,

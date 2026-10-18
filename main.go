@@ -247,8 +247,6 @@ func buildWebOpts(c *config.Config, landingBG string) webui.Options {
 	return webui.Options{
 		DefaultLang:       c.DefaultLang,
 		SiteTitle:         c.SiteTitle,
-		LandingTitle:      c.LandingTitleFor(c.DefaultLang),
-		LandingSubtitle:   c.LandingSubtitleFor(c.DefaultLang),
 		LandingCTA:        c.LandingCTAFor(c.DefaultLang),
 		LandingTextsJSON:  c.LandingTextsJSON(),
 		LandingBG:         landingBG,

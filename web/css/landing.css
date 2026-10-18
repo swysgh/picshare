@@ -60,38 +60,6 @@ main.landing {
   animation: landing-veil-in 0.6s ease 0.1s both;
 }
 
-.hero {
-  position: relative;
-  z-index: 1;
-  max-width: 56rem;
-  padding: 0 24px;
-  text-align: center;
-  animation: landing-fade 0.4s ease both;
-}
-
-.hero h1 {
-  margin: 0;
-  font-size: clamp(2rem, 7vw, 4.5rem);
-  font-weight: 700;
-  line-height: 1.15;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  overflow-wrap: break-word;
-  color: #fff;
-  text-shadow: 0 2px 30px rgba(0, 0, 0, 0.55);
-}
-
-.hero .sub {
-  margin: 1.1rem 0 0;
-  font-size: clamp(0.9rem, 2.2vw, 1.15rem);
-  letter-spacing: 0.04em;
-  color: rgba(255, 255, 255, 0.78);
-}
-
-.hero .sub:empty {
-  display: none;
-}
-
 /* Button-less call to action: a hairline mouse outline plus one small line
    of copy, pinned near the bottom of the viewport. It is decoration only —
    pointer-events stay off so the click lands on the page handler. */
@@ -109,18 +77,18 @@ main.landing {
 }
 
 .enter-hint svg {
-  width: 28px;
-  height: 28px;
-  margin-bottom: 6px;
+  width: 36px;
+  height: 36px;
+  margin-bottom: 8px;
   color: rgba(255, 255, 255, 0.8);
-  opacity: 0.5;
+  opacity: 0.6;
 }
 
 .enter-hint span {
-  font-size: 0.72rem;
-  letter-spacing: 0.16em;
+  font-size: 0.9rem;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.45);
+  color: rgba(255, 255, 255, 0.55);
 }
 
 .lang {
@@ -154,10 +122,8 @@ main.landing {
   color: #fff;
 }
 
-@keyframes landing-fade {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: none; }
-}
+/* @keyframes landing-fade removed: .hero no longer exists. Keep
+   landing-fade-in (opacity only) for the full-bleed layers. */
 
 /* Opacity-only variant for full-bleed layers (see .landing-bg img). */
 @keyframes landing-fade-in {
@@ -176,7 +142,6 @@ main.landing {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .hero,
   .landing-bg img,
   .veil,
   .enter-hint { animation: none; }

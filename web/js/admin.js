@@ -86,7 +86,7 @@
     ['en', 'lang_en'],
   ];
   const REMEMBER_CHOICES = ['off', '12h', '7d', '30d'];
-  const TEXT_GROUPS = ['title', 'subtitle', 'cta'];
+  const TEXT_GROUPS = ['cta'];
 
   let currentPath = null;
 
@@ -208,8 +208,6 @@
                 <input type="checkbox" name="landing_enabled"${s.landing_enabled ? ' checked' : ''}>
                 <span>${t('settings_landing_enabled')}</span>
               </label>
-              ${settingsTextGroup('title', t('settings_landing_title'), texts.title)}
-              ${settingsTextGroup('subtitle', t('settings_landing_subtitle'), texts.subtitle)}
               ${settingsTextGroup('cta', t('settings_landing_cta'), texts.cta)}
               <div class="settings-row">
                 <div class="field">

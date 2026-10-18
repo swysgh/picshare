@@ -22,8 +22,6 @@ type Options struct {
 	DefaultLang string
 	SiteTitle   string
 
-	LandingTitle    string
-	LandingSubtitle string
 	LandingCTA      string
 	// LandingTextsJSON is the per-language landing copy as compact JSON,
 	// injected into landing.html's data-landing-texts attribute so the page
@@ -100,15 +98,9 @@ func NewHandler(opts Options) http.Handler {
 // values intentionally replace the marker with an empty string: the page
 // then falls back to i18n copy (data-i18n) or to the gradient background.
 func newReplacer(opts Options) *strings.Replacer {
-	title := opts.LandingTitle
-	if title == "" {
-		title = opts.SiteTitle
-	}
 	return strings.NewReplacer(
 		"<!--PICSHARE_DEFAULT_LANG-->", html.EscapeString(opts.DefaultLang),
 		"<!--PICSHARE_SITE_TITLE-->", html.EscapeString(opts.SiteTitle),
-		"<!--PICSHARE_LANDING_TITLE-->", html.EscapeString(title),
-		"<!--PICSHARE_LANDING_SUBTITLE-->", html.EscapeString(opts.LandingSubtitle),
 		"<!--PICSHARE_LANDING_CTA-->", html.EscapeString(opts.LandingCTA),
 		"<!--PICSHARE_LANDING_TEXTS-->", html.EscapeString(opts.LandingTextsJSON),
 		"<!--PICSHARE_LANDING_BG-->", html.EscapeString(opts.LandingBG),
